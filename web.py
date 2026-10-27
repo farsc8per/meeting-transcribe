@@ -2747,12 +2747,13 @@ def storage_report() -> dict:
         disk = {"free": du.free, "total": du.total}
     except OSError:
         disk = None
-    free_now = [r for r in rows if r["bytes"]["rebuildable"] and not r["busy"]]
+    # Only copies trim() would really free: a WAV with no FLAC to rebuild from is kept.
+    free_now = [r for r in rows if r["bytes"]["trimmable"] and not r["busy"]]
     return {"ok": True, "meetings": len(rows), "totals": tot, "disk": disk,
             "sizes": {r["id"]: {"total": r["bytes"]["total"], "audio": r["bytes"]["audio"],
                                 "audio_removed": bool(r["bytes"]["audio_removed"])}
                       for r in rows},
-            "rebuildable": {"bytes": sum(r["bytes"]["rebuildable"] for r in free_now),
+            "rebuildable": {"bytes": sum(r["bytes"]["trimmable"] for r in free_now),
                             "meetings": len(free_now)},
             "tests": tests, "old_audio": old, "audio_keep_days": keep_days,
             "trash": trash, "trash_bytes": sum(t.get("bytes") or 0 for t in trash),

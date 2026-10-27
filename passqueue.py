@@ -580,13 +580,12 @@ class Worker:
     def _trim(self, job: dict) -> None:
         """After a clean pass, drop work/*.wav — the 16 kHz copies only the pass reads,
         rebuilt from the FLAC if a re-process or vocal cues ever needs them (the owner, Oct
-        27: "after we are done with the wav the flac files seem to be all we need"). Only
-        when a FLAC is there to rebuild from; a failed job keeps them for its retry."""
+        27: "after we are done with the wav the flac files seem to be all we need").
+        storage.trim() keeps any copy whose track has no FLAC to rebuild from; a failed job
+        keeps them all for its retry."""
         if not setting("trim_after_pass"):
             return
         d = Path(job["session"])
-        if not any((d / f"{s}.flac").is_file() for s in ("system", "mic")):
-            return
         try:
             import storage
             freed = storage.trim(d)

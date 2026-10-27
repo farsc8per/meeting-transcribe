@@ -7,6 +7,19 @@ it for real meetings for a week.
 
 ## [Unreleased]
 
+## [0.7.6] — 2026-10-27
+
+**After updating: restart `mt web`.** No rebuild needed.
+
+- **Freeing working files now checks the FLAC is there — every way it happens.** The
+  Storage panel's one-click free, Delete… → free working files, archiving, and the
+  queue after a call all go through one check: a working copy of the system track is
+  deleted only if `system.flac` is in the meeting folder, a mic copy only if `mic.flac`
+  is. Without its FLAC, that copy may be the last audio the meeting has, so it stays and
+  the meeting says "kept: no FLAC to rebuild them from". The panel's "Free …" figure
+  counts only what will really go. Remove audio is unchanged (the audio goes to the
+  trash first, so it can be restored).
+
 ## [0.7.5] — 2026-10-27
 
 **After updating: restart `mt web`.** No rebuild needed.

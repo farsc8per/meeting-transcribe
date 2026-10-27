@@ -109,6 +109,8 @@ def usage(d: Path) -> dict:
         if k == "other":
             other_names.add(rel.parts[0] + ("/" if len(rel.parts) > 1 else ""))
     out["total"] = sum(out[k] for k in ("rebuildable", "audio", "text", "other"))
+    # What trim() would actually free: rebuildable copies whose FLAC is still there.
+    out["trimmable"] = sum(f.stat().st_size for f in _trimmable(d))
     out["other_files"] = sorted(other_names)[:20]
     out["audio_removed"] = _marker(d)
     return out
@@ -136,8 +138,11 @@ def plan(d: Path, s: dict, busy: bool) -> dict:
         n = s["needs_review"]
         warn_audio.append(f"{n} voice{'s' if n != 1 else ''} still unnamed — once the audio "
                           f"is gone you can't listen to them or teach mt who they are")
-    trim = {"ok": not busy and u["rebuildable"] > 0, "bytes": u["rebuildable"],
-            "why": why_busy or ("" if u["rebuildable"] else "nothing to free")}
+    kept = u["rebuildable"] - u["trimmable"]
+    trim = {"ok": not busy and u["trimmable"] > 0, "bytes": u["trimmable"],
+            "why": why_busy or ("" if u["trimmable"] else
+                                "kept: no FLAC to rebuild them from" if kept else
+                                "nothing to free")}
     remove = {"ok": not busy and u["audio"] > 0, "bytes": u["audio"] + u["rebuildable"],
               "why": why_busy or ("" if u["audio"] else "the audio is already gone"),
               "warn": warn_audio}
@@ -153,16 +158,32 @@ def plan(d: Path, s: dict, busy: bool) -> dict:
 
 # ---------------------------------------------------------------- doing it
 
-def trim(d: Path) -> int:
-    """Delete work/*.wav. Returns bytes freed. Nothing is lost — see the module doc."""
-    freed = 0
+def _trimmable(d: Path, force: bool = False) -> list[Path]:
+    """work/*.wav that can go. A copy of the system track needs system.flac at the top of
+    the folder to rebuild from, a mic copy needs mic.flac, anything else needs either —
+    otherwise that WAV may be the last audio this meeting has, and it stays (the owner,
+    Oct 27: "does the free space check to make sure that the FLAC files exist?").
+    `force` skips the check: remove_audio, where the audio is leaving anyway."""
     work = d / "work"
     if not work.is_dir():
-        return 0
+        return []
+    flac = {t for t in AUDIO_STEMS if (d / f"{t}.flac").is_file()}
+    out = []
     for f in work.glob("*.wav"):
+        if f.is_symlink() or not f.is_file():
+            continue
+        track = next((t for t in AUDIO_STEMS if f.name.startswith(t)), None)
+        if force or (track in flac if track else bool(flac)):
+            out.append(f)
+    return out
+
+
+def trim(d: Path, force: bool = False) -> int:
+    """Delete the work/*.wav that _trimmable() allows. Returns bytes freed. Nothing is lost
+    — each one is rebuilt from its FLAC when a pass needs it (see the module doc)."""
+    freed = 0
+    for f in _trimmable(d, force):
         try:
-            if f.is_symlink() or not f.is_file():
-                continue
             size = f.stat().st_size
             f.unlink()
             freed += size
@@ -210,7 +231,7 @@ def remove_audio(d: Path, title: str = "") -> dict:
         meta["files"].append(str(rel))
         meta["bytes"] += size
     _write_entry(e, meta)
-    freed = trim(d)
+    freed = trim(d, force=True)          # the FLACs just went to the trash; copies go too
     (d / AUDIO_MARKER).write_text(json.dumps({
         "removed_at": meta["at"], "files": meta["files"], "bytes": meta["bytes"],
         "trash_entry": meta["id"]}, indent=2) + "\n")
