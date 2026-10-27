@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — owners</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="own">
+<!-- Phase 7b — owner spellings that need a person's judgement, one at a time. Nothing is
+     chosen for you: candidates are offered, the decision is yours (Person Verification).
+     Behaviour lives in owners.js. -->
+<div class="wrap">
+  <header>
+    <h1>mt <span>· owners</span></h1>
+    <a class="nav" href="/tracking">&larr; tracking</a>
+  </header>
+  <div class="ttl-top">
+    <div id="progress" class="ttl-prog"></div>
+    <div class="ttl-keys">First person = owner · others = “with” · each decision applies to every row with that spelling and is remembered · undo from Hygiene → log</div>
+  </div>
+  <div id="last" class="ttl-last" hidden></div>
+  <div id="card"><div class="empty">loading…</div></div>
+</div>
+<script src="/static/owners.js"></script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

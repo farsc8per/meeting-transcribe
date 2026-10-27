@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — titles</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="ttl">
+<!-- R4.4c — review the assistant's drafted titles, one item at a time. The full description
+     is on screen on purpose: whether an item belongs is judged on the detail. Behaviour
+     lives in titles.js. -->
+<div class="wrap">
+  <header>
+    <h1>mt <span>· titles</span></h1>
+    <a class="nav" href="/tracking">&larr; tracking</a>
+  </header>
+  <div class="ttl-top">
+    <div id="progress" class="ttl-prog"></div>
+    <div class="ttl-keys"><kbd>Enter</kbd> save (as drafted, or your edit) · <kbd>Alt</kbd>+<kbd>S</kbd> skip · titles stay editable later in the item's sheet</div>
+  </div>
+  <div id="last" class="ttl-last" hidden></div>
+  <div id="card"><div class="empty">loading…</div></div>
+</div>
+<script src="/static/titles.js"></script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

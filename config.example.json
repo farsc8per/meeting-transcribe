@@ -1,0 +1,48 @@
+{
+  "_note": "Copy to config.json and edit. Every key is optional; anything left out uses the default shown here. config.json is personal and never committed.",
+
+  "owner": "Your Name",
+  "_owner_note": "How you appear in transcripts (the mic track). Default: your macOS full name.",
+
+  "workspace": "~/mt-data",
+  "_workspace_note": "Where recordings, Customers/<slug>/meetings and DB/ live.",
+
+  "db": "~/mt-data/DB/mt.db",
+  "_db_note": "Default is <workspace>/DB/mt.db, created by `mt init`. Point at your own SQLite file only if it meets schema.sql (`mt doctor` checks; see docs/DATABASE.md).",
+
+  "google_account": "you@example.com",
+  "_google_note": "The work Google account added to macOS Calendar. Used to recognise your work calendar.",
+
+  "internal_domains": ["example.com"],
+
+  "customer_hints": {
+    "acme": ["acme", "acm"]
+  },
+  "_customer_hints_note": "Customers/<folder> -> fragments of meeting titles that mean that customer. Pre-selects the customer when you record from `mt web`.",
+
+  "accounts": {
+    "acme": {"code": "ACM", "label": "Acme", "display": "Acme Corp", "aliases": ["acme corp", "acme"]}
+  },
+  "_accounts_note": "Per customer slug, all optional: code = item-title prefix (ACM - ...), label = short name in lists, display = name in a weekly update's Slack title, aliases = words that mean this account at the start of a description, file_aliases = old filename slugs for it.",
+
+  "affiliations": ["your company", "a partner"],
+  "_affiliations_note": "Company names that may appear where a person's name is expected (owner fields), so they are not mistaken for people.",
+
+  "jira_site": "https://yourcompany.atlassian.net",
+  "_jira_note": "Only for posting weekly updates to Jira. Leave out to turn Jira posting off. The API token goes in ~/.config/mt/credentials.json or the keychain service named by jira_keychain (default mt-jira-api).",
+
+  "assistant_name": "assistant",
+  "_assistant_note": "What your AI assistant is called where mt records who did something (who posted a weekly update, who proposed a memory change).",
+
+  "recording_policy_url": "",
+  "_policy_note": "Link for the 'Recording? Understand your company's recording policy.' line under the Record button. Empty = the sentence shows without a link.",
+
+  "memory_dir": "",
+  "_memory_note": "Off by default. A folder of your AI assistant's memory files for the Hygiene -> Memory page and search. \"claude\" = Claude Code's memory folder for your workspace.",
+
+  "mic_priority": [],
+  "_mic_note": "Ordered mic name fragments; the first one plugged in wins. `mt devices` lists them.",
+
+  "prompt": "",
+  "_prompt_note": "Vocabulary hint for whisper: product names, people, acronyms you say a lot."
+}

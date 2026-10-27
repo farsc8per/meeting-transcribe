@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — weekly</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="trk">
+<!-- Weekly updates (R2, phase 5). One card per account for the chosen week; open one to
+     edit the markdown, set RAG from the Jira pick-lists, see exactly what would be posted
+     to Jira and to Slack, hand it to your assistant, and record the DB row once it is posted.
+     All behaviour lives in weekly.js — deliberately no inline script.
+
+     RAG is not typed. The two selects come from jira_fields.json, and a save rewrites the
+     RAG line in the file from them — so the file cannot disagree with what Jira gets. -->
+<div class="wrap">
+  <header>
+    <h1>mt <span>· weekly</span></h1>
+    <a class="nav" href="/">&larr; meetings</a>
+    <a class="nav" href="/tracking">Tracking &rarr;</a>
+    <a class="nav" href="/files">Files &rarr;</a>
+    <a class="nav" href="/contacts">Contacts &rarr;</a>
+  </header>
+
+  <div class="weekbar">
+    <button id="wprev" title="Previous week">&larr;</button>
+    <div class="wk"><b id="wlabel">…</b><span id="wrange"></span></div>
+    <button id="wnext" title="Next week">&rarr;</button>
+    <button id="wnow">This week</button>
+    <span class="grow"></span>
+    <span class="note" id="wcache"></span>
+    <button id="wresync" disabled>Resync options</button>
+  </div>
+
+  <div id="wfail"></div>
+  <div id="board" class="wboard"><div class="empty">loading…</div></div>
+</div>
+
+<script src="/static/md.js"></script>
+<script src="/static/weekly.js"></script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

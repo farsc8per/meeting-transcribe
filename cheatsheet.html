@@ -1,0 +1,616 @@
+<title>mt Command Card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #F5F7F8;
+    --surface: #FFFFFF;
+    --surface-2: #EDF1F3;
+    --ink: #14181D;
+    --ink-2: #4A555F;
+    --ink-3: #6F7C87;
+    --line: #D9E0E5;
+    --line-2: #C3CCD3;
+    --accent: #A85F0F;
+    --accent-soft: #FBF0E1;
+    --teal: #256B5F;
+    --teal-soft: #E4F0ED;
+    --warn: #973926;
+    --warn-soft: #FAE9E5;
+    --console: #171C22;
+    --console-ink: #E6EDF2;
+
+    --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --f-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101419;
+      --surface: #181D24;
+      --surface-2: #1F262E;
+      --ink: #E9EEF2;
+      --ink-2: #A9B5BF;
+      --ink-3: #7C8894;
+      --line: #2A323B;
+      --line-2: #384250;
+      --accent: #E0973F;
+      --accent-soft: #2A2016;
+      --teal: #59B3A2;
+      --teal-soft: #16261F;
+      --warn: #DE7B62;
+      --warn-soft: #2A1712;
+      --console: #0B0E12;
+      --console-ink: #E6EDF2;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #101419;
+    --surface: #181D24;
+    --surface-2: #1F262E;
+    --ink: #E9EEF2;
+    --ink-2: #A9B5BF;
+    --ink-3: #7C8894;
+    --line: #2A323B;
+    --line-2: #384250;
+    --accent: #E0973F;
+    --accent-soft: #2A2016;
+    --teal: #59B3A2;
+    --teal-soft: #16261F;
+    --warn: #DE7B62;
+    --warn-soft: #2A1712;
+    --console: #0B0E12;
+    --console-ink: #E6EDF2;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 34px 22px 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+  }
+
+  /* ---------- masthead ---------- */
+  .top { display: flex; flex-direction: column; gap: 16px; }
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 700;
+    font-size: clamp(30px, 5vw, 44px);
+    letter-spacing: -.021em;
+    line-height: 1.05;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 .lede { color: var(--ink-3); font-weight: 500; }
+  .sub { color: var(--ink-2); max-width: 62ch; margin: 0; }
+
+  /* ---------- console blocks ---------- */
+  .console {
+    background: var(--console);
+    border: 1px solid var(--line-2);
+    border-radius: 8px;
+    padding: 15px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    overflow-x: auto;
+  }
+  .console.hero { padding: 19px 20px; }
+  .console code {
+    font-family: var(--f-mono);
+    font-size: 14px;
+    color: var(--console-ink);
+    white-space: pre;
+    flex: 1;
+    min-width: 0;
+  }
+  .console.hero code { font-size: 15.5px; font-weight: 500; }
+  .console code .dim { color: #7D8B98; }
+  .console code .amber { color: #E0973F; }
+  .copy {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: #94A2AF;
+    background: transparent;
+    border: 1px solid #333C46;
+    border-radius: 5px;
+    padding: 5px 9px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color .15s, border-color .15s;
+  }
+  .copy:hover { color: #E0973F; border-color: #6B4A21; }
+  .copy:focus-visible { outline: 2px solid #E0973F; outline-offset: 2px; }
+  .copy.done { color: #59B3A2; border-color: #2C5A50; }
+
+  /* ---------- grid + panels ---------- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+  }
+  .panel.span { grid-column: 1 / -1; }
+
+  h2 {
+    font-family: var(--f-display);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0;
+    padding-bottom: 11px;
+    border-bottom: 1px solid var(--line);
+  }
+  h3 {
+    font-family: var(--f-display);
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -.005em;
+  }
+  p { margin: 0; }
+  .note { color: var(--ink-2); font-size: 13.5px; }
+
+  /* ---------- run sequence (a real sequence, so it is numbered) ---------- */
+  ol.run { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+  ol.run li { display: grid; grid-template-columns: 26px 1fr; gap: 13px; align-items: start; }
+  .step {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 4px;
+    text-align: center;
+    padding: 3px 0;
+    line-height: 1.5;
+  }
+  ol.run .what { display: flex; flex-direction: column; gap: 3px; }
+  ol.run kbd {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--surface-2);
+    border: 1px solid var(--line-2);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--ink);
+  }
+
+  /* ---------- flag list ---------- */
+  dl.flags { margin: 0; display: flex; flex-direction: column; gap: 11px; }
+  dl.flags > div { display: grid; grid-template-columns: minmax(0, 155px) 1fr; gap: 14px; align-items: baseline; }
+  @media (max-width: 560px) { dl.flags > div { grid-template-columns: 1fr; gap: 2px; } }
+  dt { font-family: var(--f-mono); font-size: 12.5px; font-weight: 500; color: var(--accent); word-break: break-word; }
+  dd { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+  dd b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- chips ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip {
+    font-family: var(--f-mono);
+    font-size: 12.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 4px 9px;
+    color: var(--ink);
+  }
+  .chip.fix { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+
+  /* ---------- file list ---------- */
+  ul.files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+  ul.files li { display: grid; grid-template-columns: minmax(0, 138px) 1fr; gap: 13px; align-items: baseline; }
+  @media (max-width: 560px) { ul.files li { grid-template-columns: 1fr; gap: 1px; } }
+  ul.files .fn { font-family: var(--f-mono); font-size: 12.5px; color: var(--ink); font-weight: 500; }
+  ul.files .fd { color: var(--ink-2); font-size: 13.5px; }
+  ul.files .keep { color: var(--teal); font-weight: 600; }
+
+  /* ---------- callouts ---------- */
+  .call {
+    border-left: 3px solid var(--teal);
+    background: var(--teal-soft);
+    border-radius: 0 7px 7px 0;
+    padding: 12px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .call.hot { border-left-color: var(--warn); background: var(--warn-soft); }
+  .call .h { font-family: var(--f-display); font-weight: 600; font-size: 13.5px; }
+  .call.hot .h { color: var(--warn); }
+  .call:not(.hot) .h { color: var(--teal); }
+  .call p { font-size: 13.5px; color: var(--ink-2); }
+
+  /* ---------- fix table ---------- */
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-weight: 500;
+  }
+  td:first-child { color: var(--ink); font-weight: 500; width: 38%; }
+  td:last-child { color: var(--ink-2); }
+  tr:last-child td { border-bottom: none; }
+  code.inline {
+    font-family: var(--f-mono);
+    font-size: 12.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  footer {
+    color: var(--ink-3);
+    font-size: 12.5px;
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+  }
+  footer span.k { font-family: var(--f-mono); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="top">
+    <div class="eyebrow">Local meeting transcription · nothing leaves this Mac</div>
+    <h1>mt <span class="lede">— start a recording in one line</span></h1>
+    <p class="sub">Works for any meeting — Zoom, Teams, Meet, Dialpad, a phone on speaker, or a
+      conversation in a room. It records what the Mac plays and what your mic hears, so it does
+      not care which app the call is in.</p>
+
+    <div class="console hero">
+      <code id="c-main">mt live <span class="amber">--customer</span> acme <span class="amber">--name</span> acme-weekly <span class="amber">--title</span> "Acme // Weekly"</code>
+      <button class="copy" data-target="c-main">Copy</button>
+    </div>
+    <p class="note">Yes — combine <code class="inline">--customer</code> and <code class="inline">--name</code>.
+      They do different jobs: the first picks the folder, the second names the meeting inside it.
+      Drop <code class="inline">--name</code> and you get a generic <code class="inline">2026-09-04-meeting</code>,
+      which gets confusing by the third one.</p>
+  </header>
+
+  <div class="grid">
+
+    <section class="panel">
+      <h2>How a meeting runs</h2>
+      <ol class="run">
+        <li>
+          <span class="step">1</span>
+          <span class="what">
+            <h3>Start it in its own tab</h3>
+            <p class="note">A separate terminal tab, so <kbd>Ctrl</kbd>+<kbd>C</kbd> is clean and does not
+              interrupt anything else.</p>
+          </span>
+        </li>
+        <li>
+          <span class="step">2</span>
+          <span class="what">
+            <h3>Have the meeting</h3>
+            <p class="note">A rough transcript prints as you go. Switch apps and move windows freely —
+              it reads the meeting window even when it is buried.</p>
+          </span>
+        </li>
+        <li>
+          <span class="step">3</span>
+          <span class="what">
+            <h3>Press <kbd>Ctrl</kbd>+<kbd>C</kbd></h3>
+            <p class="note">That ends the recording and automatically starts the accurate pass.
+              Roughly 5 minutes for an hour-long meeting.</p>
+          </span>
+        </li>
+        <li>
+          <span class="step">4</span>
+          <span class="what">
+            <h3>Name anyone it could not</h3>
+            <p class="note">Once per person, ever. After that they are recognised automatically in
+              every future meeting.</p>
+          </span>
+        </li>
+      </ol>
+      <div class="console">
+        <code id="c-enroll">mt enroll <span class="dim">&lt;session-dir&gt;</span> <span class="amber">--speaker</span> 2 <span class="amber">--name</span> "Alex Example"</code>
+        <button class="copy" data-target="c-enroll">Copy</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>The five commands worth remembering</h2>
+      <dl class="flags">
+        <div>
+          <dt>mt live</dt>
+          <dd><b>The one you want.</b> Rolling transcript during the call, accurate pass after.</dd>
+        </div>
+        <div>
+          <dt>mt record</dt>
+          <dd>Same, without the live text. Slightly less to think about.</dd>
+        </div>
+        <div>
+          <dt>mt process &lt;file&gt;</dt>
+          <dd>Transcribe a recording you already have — a Zoom download, a Gong mp3, a voice memo.</dd>
+        </div>
+        <div>
+          <dt>mt speakers</dt>
+          <dd>Who is enrolled so far.</dd>
+        </div>
+        <div>
+          <dt>mt doctor</dt>
+          <dd>Run this first if anything misbehaves. It names the fix.</dd>
+        </div>
+      </dl>
+      <div class="call">
+        <span class="h">Keep the pop-out visible</span>
+        <p>Zoom's floating window and Meet's pop-out both display who is currently talking, and that
+          is where the speaker names come from. Leaving one up is the single best thing you can do
+          for attribution.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Customer slugs for <span style="font-family:var(--f-mono);text-transform:none;letter-spacing:0">--customer</span></h2>
+      <p class="note">Files the meeting into your workspace:
+        <code class="inline">~/mt-data/Customers/&lt;slug&gt;/meetings/YYYY-MM-DD-name/</code></p>
+      <div class="chips">
+        <span class="chip">acme</span>
+        <span class="chip">globex</span>
+      </div>
+      <p class="note">The slug is the folder name under <code class="inline">Customers/</code>.
+        Leave <code class="inline">--customer</code> off entirely for internal calls like CAB and it
+        lands in <code class="inline">Recordings/</code>.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Flags you will actually reach for</h2>
+      <dl class="flags">
+        <div>
+          <dt>--title "CAB — Sep 4"</dt>
+          <dd>The heading inside the transcript. Spaces are fine here.</dd>
+        </div>
+        <div>
+          <dt>--speakers 6</dt>
+          <dd>When you know how many people are on the far end. Sharpens speaker splitting.</dd>
+        </div>
+        <div>
+          <dt>--roster "Alex,Sam"</dt>
+          <dd>Names you expect, if you have them. Treated as a guess, never as fact.</dd>
+        </div>
+        <div>
+          <dt>--in-person</dt>
+          <dd>Several people sharing your mic in a room. Splits your own track too. Forgot it?
+            <code>mt process &lt;session&gt; --in-person --no-system</code> re-splits afterwards.</dd>
+        </div>
+        <div>
+          <dt>--no-system</dt>
+          <dd>Mic only, in person. The system track is still recorded, but its watchdog is off,
+            so no spoken "System audio check" in the room.</dd>
+        </div>
+        <div>
+          <dt>--no-mic</dt>
+          <dd>A webinar or playback where you never speak. On <code>mt process</code>: ignore the
+            mic track and use only the system (Teams) track.</dd>
+        </div>
+        <div>
+          <dt>--duration 3600</dt>
+          <dd>Stop on its own after N seconds, in case you forget.</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="panel span">
+      <h2>Which mic is it using?</h2>
+      <p class="note">macOS quietly changes the default input when you move between home and the
+        office — plug in a dock or a webcam and it can grab the input slot without telling you.
+        So <code class="inline">mt</code> names the mic it picked before it starts, and records it
+        in the transcript header and <code class="inline">capture.json</code> afterwards.</p>
+      <div class="console">
+        <code id="c-dev">mt devices</code>
+        <button class="copy" data-target="c-dev">Copy</button>
+      </div>
+      <div class="grid" style="gap:20px">
+        <dl class="flags">
+          <div>
+            <dt>▸ in the list</dt>
+            <dd>The current <b>system default</b> input.</dd>
+          </div>
+          <div>
+            <dt>"mt would use:"</dt>
+            <dd>What you will actually get, and the reason it was chosen.</dd>
+          </div>
+          <div>
+            <dt>--mic-id HyperX</dt>
+            <dd>Override for one meeting. <b>A fragment of the name is enough</b> — you never need the long CoreAudio id.</dd>
+          </div>
+          <div>
+            <dt>mic_priority</dt>
+            <dd>In <code class="inline">config.json</code>. Ordered list of name fragments; the first one plugged in wins, so both locations just work.</dd>
+          </div>
+        </dl>
+        <div class="call hot">
+          <span class="h">Webcam and dock mics are the trap</span>
+          <p>They sound the worst and are the most likely to seize the default slot the moment you
+            connect them. Both are deliberately left out of <code class="inline">mic_priority</code>,
+            so a headset or the HyperX wins whenever one is present — and the built-in MacBook mic
+            is the last resort rather than an accident.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel span">
+      <h2>What you get, and what to keep</h2>
+      <div class="grid" style="gap:20px">
+        <ul class="files">
+          <li><span class="fn keep">transcript.md</span><span class="fd"><b>The record.</b> Speaker-labelled and timestamped, with a table of who was seen on screen.</span></li>
+          <li><span class="fn">transcript.txt</span><span class="fd">Flat text. Good for pasting to your AI assistant.</span></li>
+          <li><span class="fn">live.md</span><span class="fd">The rough live notes. Superseded by <span style="font-family:var(--f-mono)">transcript.md</span>.</span></li>
+          <li><span class="fn">speakers.json</span><span class="fd">Edit a name here, then run <code class="inline">mt relabel &lt;dir&gt;</code>.</span></li>
+        </ul>
+        <ul class="files">
+          <li><span class="fn">system.flac / mic.flac</span><span class="fd">The audio, losslessly compressed. A 33-minute call keeps about 56 MB instead of 764 MB.</span></li>
+          <li><span class="fn">screen_roster.json</span><span class="fd">What was read off the meeting window, with frame counts.</span></li>
+          <li><span class="fn">work/</span><span class="fd">Intermediates. Safe to delete; only makes a re-run slower.</span></li>
+        </ul>
+      </div>
+      <div class="call">
+        <span class="h">Then hand it to your AI assistant</span>
+        <p>“Summarise <span style="font-family:var(--f-mono);font-size:12.5px">Customers/acme/meetings/2026-09-04-acme-weekly/transcript.md</span>
+          and pull out action items.” The transcript is the raw material; the summary is your AI assistant’s job.</p>
+      </div>
+    </section>
+
+    <section class="panel span">
+      <h2>Vocal cues &amp; meeting awards <span style="font-family:var(--f-mono);text-transform:none;letter-spacing:0">(experimental)</span></h2>
+      <dl class="flags">
+        <div>
+          <dt>Conversation</dt>
+          <dd>On every review page: talk share, longest run, who started over whom (checked against the audio), slowest answer. Plus the awards — 🎤 Monologuer, ⚡ Interrupter, 🛡️ Iron Floor, 🤐 Strategic Silence, 📢 Main Character, 🔥 Spice Level, 😂 Best Saying.</dd>
+        </div>
+        <div>
+          <dt>Hide awards</dt>
+          <dd><b>Before you share your screen.</b> One setting covers Review and the Room panel.</dd>
+        </div>
+        <div>
+          <dt>👑 Crown</dt>
+          <dd>Best Saying is the line the room laughed at; crown any candidate or transcript line and your pick wins.</dd>
+        </div>
+        <div>
+          <dt>Vocal cues ☐</dt>
+          <dd>Tick before recording, then <b>Open Room ↗</b> for live per-speaker Energy &amp; Friction. Or <b>Analyze vocal cues</b> in Review afterwards.</dd>
+        </div>
+        <div>
+          <dt>mt cues &lt;meeting&gt;</dt>
+          <dd>The same analysis from the terminal. <span style="font-family:var(--f-mono)">--all</span> opts in everything, <span style="font-family:var(--f-mono)">--clear</span> opts one back out.</dd>
+        </div>
+      </dl>
+      <div class="call">
+        <span class="h">What it can and can't tell you</span>
+        <p>“Faster and higher than her normal” — yes. Why — no: excited and upset sound the same. The words describe delivery, never feelings or honesty. It stays in mt web; it never goes into a summary, weekly, Jira or Slack. Every panel has a <b>Field guide</b>.</p>
+      </div>
+    </section>
+
+    <section class="panel span">
+      <h2>If something looks wrong</h2>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>What you see</th><th>Why, and what to do</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Your own lines are missing</td>
+              <td>You were too quiet, or the HyperX mute plate is tapped off. Gain is capped on purpose — below about −60&nbsp;dBFS a track is treated as noise and dropped rather than invented over.</td>
+            </tr>
+            <tr>
+              <td>A garbled copy of the far side, under your name</td>
+              <td>Your mic is hearing the call through the speakers. <b>Wear headphones.</b> It is filtered out, but headphones remove it at the source.</td>
+            </tr>
+            <tr>
+              <td>Far too many speakers</td>
+              <td>Pass <code class="inline">--speakers N</code>. Long calls split one person across several voices; that number pins it.</td>
+            </tr>
+            <tr>
+              <td>Names spelled wrong</td>
+              <td>Add them to <code class="inline">prompt</code> in <code class="inline">config.json</code>. It holds about 150 words — swap terms in and out rather than appending forever.</td>
+            </tr>
+            <tr>
+              <td>The first few seconds are missing</td>
+              <td>The system-audio tap occasionally takes a moment to attach. Start it a few seconds before the meeting.</td>
+            </tr>
+            <tr>
+              <td>Nothing captured at all</td>
+              <td>Run <code class="inline">mt doctor</code>. Almost always Screen &amp; System Audio Recording being off for the terminal, which needs a full <kbd>⌘</kbd>+<kbd>Q</kbd> after you grant it.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="call hot">
+        <span class="h">Speaker names are always marked unconfirmed</span>
+        <p>Every machine-derived name — voiceprint match, on-screen label, roster order — is written as
+          a guess, and the transcript says so. Confirm before quoting anyone in a customer-facing
+          artifact. A 0.92 voiceprint match is strong evidence, not proof.</p>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <span><span class="k">mt</span> lives in <span class="k">~/Tools/mt</span></span>
+    <span>Live pass <span class="k">small.en</span> · final pass <span class="k">large-v3-turbo</span></span>
+    <span>No API key, no upload, no subscription</span>
+  </footer>
+</div>
+
+<script>
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var el = document.getElementById(btn.dataset.target);
+      if (!el) return;
+      var text = el.innerText.replace(/ /g, " ").trim();
+      var done = function () {
+        btn.textContent = "Copied";
+        btn.classList.add("done");
+        setTimeout(function () {
+          btn.textContent = "Copy";
+          btn.classList.remove("done");
+        }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {
+          btn.textContent = "Select it";
+        });
+      } else {
+        btn.textContent = "Select it";
+      }
+    });
+  });
+</script>

@@ -1,0 +1,1614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — review voices</title>
+<style>
+  :root{
+    --ground:#F3F6F7; --surface:#FFFFFF; --surface-2:#E9EFF1; --ink:#151B20; --ink-2:#4C5A63;
+    --ink-3:#75838C; --line:#D8E1E5; --line-2:#BFCBD1;
+    --accent:#0E6C79; --accent-soft:#E0F0F2; --ok:#166B4E; --ok-soft:#E1F1EA;
+    --warn:#8F540F; --warn-soft:#FAEEDD; --alert:#96331F; --alert-soft:#FAE7E2;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    --m:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --ground:#0E1316; --surface:#161D21; --surface-2:#1E272C; --ink:#E6EDF0; --ink-2:#A5B3BB;
+    --ink-3:#78868E; --line:#283238; --line-2:#374349;
+    --accent:#4EC2CE; --accent-soft:#0F2A2E; --ok:#5BC59A; --ok-soft:#12281F;
+    --warn:#DFA24C; --warn-soft:#2A1F11; --alert:#E08A70; --alert-soft:#2C1610;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px 70px}
+  .bar{position:sticky;top:0;z-index:20;background:var(--ground);border-bottom:1px solid var(--line);padding:14px 0}
+  .barin{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  a.back{color:var(--accent);text-decoration:none;font-size:13.5px}
+  a.back:hover{text-decoration:underline}
+  h1{font-size:17px;margin:0;letter-spacing:-.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .meta{font-family:var(--m);font-size:11.5px;color:var(--ink-3)}
+  .autrack{font-family:var(--m);font-size:11px;color:var(--ink-3);white-space:nowrap}
+  audio{width:100%;margin-top:10px;height:36px}
+  .cols{display:grid;grid-template-columns:322px minmax(0,1fr);gap:22px;align-items:start;margin-top:20px}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  h2{font-size:11.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-3);margin:0 0 10px}
+  /* One sticky panel holding the rail AND the handoff card. Previously the rail alone
+     was sticky and the handoff card, being a later sibling, slid underneath it. */
+  .side{position:sticky;top:112px;z-index:1;max-height:calc(100vh - 128px);
+        overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+  @media(max-width:900px){.side{position:static;max-height:none;overflow:visible}}
+  .rail{display:flex;flex-direction:column;gap:8px}
+  button.sp{text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:9px;
+    padding:10px 12px;cursor:pointer;font-family:var(--f);color:var(--ink);display:flex;flex-direction:column;gap:5px}
+  button.sp:hover{border-color:var(--accent)}
+  button.sp.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+  button.sp.ver{border-color:var(--ok)}
+  button.sp.mix{border-color:var(--alert)}
+  button.sp{position:relative}
+  button.sp .n{font-weight:600;font-size:14.5px;padding-right:26px}
+  button.sp .jump{position:absolute;top:8px;right:8px;font-size:11px;line-height:1;
+    padding:4px 7px;border-radius:5px;border:1px solid var(--line-2);background:var(--surface);
+    color:var(--ink-3);cursor:pointer}
+  button.sp .jump:hover{border-color:var(--accent);color:var(--accent)}
+  .nav{display:flex;align-items:center;gap:7px;margin-bottom:9px}
+  .nav .cnt{font-family:var(--m);font-size:11.5px;color:var(--ink-3);margin-left:auto}
+  .ln.now{scroll-margin-top:130px}
+  button.sp .r{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .pill{font-family:var(--m);font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--surface-2);color:var(--ink-2)}
+  .pill.sc{background:var(--accent-soft);color:var(--accent)}
+  .pill.ok{background:var(--ok-soft);color:var(--ok)}
+  .pill.bad{background:var(--alert-soft);color:var(--alert)}
+  .pill.mid{background:var(--warn-soft);color:var(--warn)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .panel{margin-top:12px}
+  .lbl{font-family:var(--m);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+  input[type=text]{font-family:var(--f);font-size:14px;padding:8px 10px;border:1px solid var(--line-2);
+    border-radius:7px;background:var(--surface);color:var(--ink);width:100%}
+  input:focus{outline:2px solid var(--accent);outline-offset:1px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow-y:auto;align-content:flex-start;
+    padding:7px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);margin-top:7px}
+  button.chip{font-size:13px;background:var(--surface);color:var(--ink);border:1px solid var(--line-2);
+    border-radius:6px;padding:4px 9px;cursor:pointer}
+  button.chip:hover{border-color:var(--accent);color:var(--accent)}
+  button.chip.sel{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.chip.sugg{box-shadow:0 0 0 1px var(--ok) inset}
+  button.chip.sugg.sel{box-shadow:none}
+  .acts{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+  button.go{font-size:13.5px;font-weight:600;background:var(--accent);border:1px solid var(--accent);color:#fff;
+    border-radius:7px;padding:8px 13px;cursor:pointer}
+  button.go[disabled]{opacity:.45;cursor:not-allowed}
+  button.ghost{font-size:13.5px;background:transparent;color:var(--ink-2);border:1px solid var(--line-2);
+    border-radius:7px;padding:8px 12px;cursor:pointer}
+  button.ghost:hover{color:var(--ink);border-color:var(--ink-3)}
+  .say{font-family:var(--m);font-size:12px;color:var(--ok);margin-top:7px;min-height:16px}
+  /* What the recorder's own event log says about this recording's system tap. A gap in
+     the far side is the single most important thing to know BEFORE quoting a transcript,
+     and until now it lived only in a banner that was on screen during the call. */
+  .caph{margin-top:14px;border-radius:9px;padding:12px 14px;border:1px solid var(--line);
+        background:var(--surface)}
+  .caph.bad{border-color:var(--alert);background:var(--alert-soft);border-width:2px}
+  .caph.mid{border-color:var(--warn);background:var(--warn-soft)}
+  .caph b{display:block;margin-bottom:3px}
+  .caph.bad b{color:var(--alert)}
+  .caph.mid b{color:var(--warn)}
+  .caph .evs{font-family:var(--m);font-size:11.5px;color:var(--ink-2);margin-top:8px;
+             white-space:pre-wrap;word-break:break-word;max-height:190px;overflow:auto;
+             background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:8px 10px}
+  .caph summary{font-size:12.5px;color:var(--ink-3);cursor:pointer;margin-top:8px}
+  .warn{background:var(--alert-soft);border-left:3px solid var(--alert);border-radius:0 7px 7px 0;
+    padding:10px 12px;font-size:13px;color:var(--ink-2);margin-top:10px}
+  .warn b{color:var(--alert)}
+  /* transcript */
+  .tx{display:flex;flex-direction:column;gap:2px}
+  .grp{margin-top:12px}
+  .grp .who{font-weight:600;font-size:13.5px;color:var(--ink-2);margin:0 0 3px 0}
+  .ln{display:flex;gap:10px;padding:5px 8px;border-radius:6px;cursor:pointer;align-items:baseline}
+  .ln:hover{background:var(--surface-2)}
+  .ln.now{background:var(--accent-soft)}
+  .ln .t{font-family:var(--m);font-size:11.5px;color:var(--ink-3);flex-shrink:0;font-variant-numeric:tabular-nums}
+  .ln .x{min-width:0}
+  .dim{opacity:.38}
+  .ln .re{margin-left:auto;flex-shrink:0;font-size:11px;padding:2px 7px;border-radius:5px;
+    border:1px solid var(--line-2);background:var(--surface);color:var(--ink-3);cursor:pointer;
+    opacity:0;transition:opacity .12s}
+  .ln:hover .re{opacity:1}
+  .ln .re.crown{margin-left:4px}
+  .ln .ov{flex-shrink:0;font-family:var(--m);font-size:10.5px;padding:2px 7px;border-radius:5px;
+    background:var(--ok-soft);color:var(--ok)}
+  .picker{margin:4px 0 10px 0;padding:10px 12px;background:var(--surface);border:1px solid var(--accent);
+    border-radius:8px}
+  .ovbox{margin-top:14px}
+  .ovrow{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px dashed var(--line)}
+  .ovrow:last-child{border-bottom:none}
+  .ovrow .nm{font-weight:600;font-size:13.5px}
+  .ovrow .ct{font-family:var(--m);font-size:11.5px;color:var(--ink-3)}
+  .hoff{margin-top:20px}
+  /* ---- scope: this meeting vs every meeting ----------------------------------
+     The two live one above the other in the same panel, so they have to be told
+     apart without reading. Local actions stay on the plain card; anything that
+     touches the voiceprint store gets the boxed, alert-tinted zone and an
+     ALL MEETINGS tag. */
+  .scope{display:inline-block;font-family:var(--m);font-size:9.5px;letter-spacing:.09em;
+    text-transform:uppercase;padding:2px 7px;border-radius:5px;background:var(--surface-2);
+    color:var(--ink-3);vertical-align:middle}
+  .scope.glob{background:var(--alert);color:#fff}
+  .zone{margin-top:14px;border:1px solid var(--alert);background:var(--alert-soft);
+    border-radius:8px;padding:11px 12px}
+  .zone.calm{border-color:var(--line-2);background:var(--surface-2)}
+  .zhead{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .zhead .zt{font-weight:600;font-size:13px}
+  /* .zb is also used outside a .zone (the scope sentence, the reassigned-lines note),
+     so it needs to stand on its own. */
+  .zb{font-size:12.5px;color:var(--ink-2);margin-bottom:6px}
+  .zone .zb{margin-bottom:6px}
+  .zone .zb.em{color:var(--ink)}
+  .zone .zb.em b{color:var(--alert)}
+  .zone input[type=text]{margin-top:4px}
+  .chk{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--ink-2);
+    margin-top:10px;cursor:pointer}
+  .chk input{margin:3px 0 0 0;flex-shrink:0}
+  button.danger{font-size:13.5px;font-weight:600;background:transparent;color:var(--alert);
+    border:1px solid var(--alert);border-radius:7px;padding:8px 13px;cursor:pointer;
+    font-family:var(--f);margin-top:10px}
+  button.danger:hover{background:var(--alert);color:#fff}
+  button.danger.armed{background:var(--alert);color:#fff}
+  button.danger[disabled]{opacity:.45;cursor:not-allowed}
+  .pill.vp{background:var(--accent-soft);color:var(--accent)}
+  .pill.ret{background:var(--warn-soft);color:var(--warn)}
+  /* flash survives the reload that redraws the rail, so a global change still has
+     something to say afterwards */
+  .flash{border-radius:9px;padding:11px 13px;margin-bottom:12px;font-size:13px;
+    border:1px solid var(--ok);background:var(--ok-soft);color:var(--ink)}
+  .flash.bad{border-color:var(--alert);background:var(--alert-soft)}
+  .flash .freason{font-family:var(--m);font-size:11.5px;color:var(--ink-2);margin-top:5px;
+    white-space:pre-wrap;word-break:break-word}
+  .flash .acts{margin-top:9px}
+  .qual{margin-top:11px;border-radius:8px;padding:9px 11px;border:1px solid var(--line);
+    background:var(--surface-2)}
+  .qual.warn2{border-color:var(--warn);background:var(--warn-soft)}
+  .qual.bad2{border-color:var(--alert);background:var(--alert-soft)}
+  .qual .qh{display:flex;align-items:baseline;gap:8px}
+  .qual .qn{font-family:var(--m);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+  .qual .ql{font-size:12px;font-weight:600}
+  .qual .qx{font-size:12.5px;color:var(--ink-2);margin-top:4px}
+  .qual .qs{font-family:var(--m);font-size:10.5px;color:var(--ink-3);margin-top:5px}
+  /* the bar makes "0.86 vs 0.95" a glance rather than a comparison */
+  .qbar{height:5px;border-radius:3px;background:var(--line);margin-top:7px;position:relative;
+    overflow:hidden}
+  .qbar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--ok)}
+  .qual.warn2 .qbar i{background:var(--warn)}
+  .qual.bad2 .qbar i{background:var(--alert)}
+  .qtick{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--ink-3);opacity:.6}
+  .vprow{display:flex;align-items:baseline;gap:9px;padding:8px 0;
+    border-bottom:1px dashed var(--line);flex-wrap:wrap}
+  .vprow:last-child{border-bottom:none}
+  .vprow .nm{font-weight:600;font-size:13.5px}
+  .vprow .ct{font-family:var(--m);font-size:11px;color:var(--ink-3)}
+  .vprow .rw{flex-basis:100%;font-size:12px;color:var(--ink-2);white-space:pre-wrap;
+    word-break:break-word}
+  /* the contact check that follows an enrolment. Sits in the same visual family as
+     .flash (it survives the reload) but reads calm: it is a question, not a result. */
+  .link{border:1px solid var(--line-2);background:var(--surface);border-radius:9px;
+    padding:11px 13px;margin-bottom:12px}
+  .link.good{border-color:var(--ok);background:var(--ok-soft)}
+  .link.ask{border-color:var(--warn);background:var(--warn-soft)}
+  .link .lh{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+  .link .lt{font-weight:600;font-size:13px}
+  .link .lb{font-size:12.5px;color:var(--ink-2);margin-bottom:6px}
+  .link .lb b{color:var(--ink)}
+  .cand{border:1px solid var(--line);border-radius:8px;background:var(--surface);
+    padding:9px 10px;margin-top:8px}
+  .cand .cn{font-weight:600;font-size:13.5px}
+  .cand .cr{font-size:12px;color:var(--ink-2);margin-top:2px}
+  .cand .cs{font-family:var(--m);font-size:10.5px;color:var(--ink-3);margin-top:3px}
+  .link pre.detail{font-family:var(--m);font-size:11px;color:var(--ink-2);margin:7px 0 0;
+    white-space:pre-wrap;word-break:break-word;max-height:190px;overflow:auto}
+  .empty{color:var(--ink-3);font-size:13.5px}
+
+  /* vocal cues — colours mean distance from THAT person's normal, never a feeling */
+  :root{--cue0:#2F6DB5;--cue1:#2E8A62;--cue2:#C27C12;--cue3:#B8432B;--cue-none:var(--line-2)}
+  @media (prefers-color-scheme:dark){:root{--cue0:#6EA8E8;--cue1:#5BC59A;--cue2:#E3A64F;--cue3:#E8735A}}
+  .cues{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+        padding:14px 16px;margin-top:16px}
+  .cues .hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .cues .hd h2{margin:0}
+  .cues .exp{font-family:var(--m);font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
+  .cues .hd .act{margin-left:auto;display:flex;gap:8px}
+  .cues .why{font-size:13px;color:var(--ink-2);margin:6px 0 0}
+  .cues .key{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2);margin:10px 0 2px}
+  .cues .key span{display:inline-flex;align-items:center;gap:5px}
+  .cues .key i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .cues .words{font-family:var(--m);font-size:11px;color:var(--ink-3)}
+  .cues .person{margin-top:12px}
+  .cues .pn{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13.5px}
+  .cues .pn b{font-weight:600}
+  .cues .pn .conf{font-family:var(--m);font-size:11px;color:var(--ink-3)}
+  .cues .pn .sum{font-size:12.5px;color:var(--ink-2)}
+  .cues .row{display:grid;grid-template-columns:62px 1fr;align-items:center;gap:8px;margin-top:3px}
+  .cues .row .lab{font-family:var(--m);font-size:10.5px;color:var(--ink-3)}
+  .cues svg{width:100%;height:16px;display:block;background:var(--surface-2);border-radius:3px}
+  .cues svg rect{cursor:pointer}
+  .cues svg.axis{height:14px;background:none}
+  .cues .b0{fill:var(--cue0)} .cues .b1{fill:var(--cue1)} .cues .b2{fill:var(--cue2)}
+  .cues .b3{fill:var(--cue3)} .cues .bn{fill:var(--cue-none)}
+  .cues .tick{fill:var(--ink-3)}
+  .cues .note{font-size:12.5px;color:var(--ink-3);margin-top:10px}
+  .cues .prog{height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:8px;max-width:320px}
+  .cues .prog i{display:block;height:100%;background:var(--accent)}
+  .cues pre{font-family:var(--m);font-size:11px;color:var(--ink-2);white-space:pre-wrap;margin:6px 0 0}
+
+  /* conversation + awards (step 4) */
+  .awards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-top:10px}
+  .award{border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:var(--surface-2);cursor:pointer}
+  .award:hover{border-color:var(--accent)}
+  .award .at{font-size:12px;color:var(--ink-2)} .award .at span{font-size:15px;margin-right:4px}
+  .award .aw{font-weight:600;font-size:14px;margin-top:2px}
+  .award .av{font-size:12.5px;color:var(--ink-2);margin-top:1px}
+  .award .ad{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+  .dyn{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
+  .dyn th{text-align:left;font-weight:500;font-size:11.5px;color:var(--ink-3);padding:4px 6px;border-bottom:1px solid var(--line)}
+  .dyn td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .dyn td.n{font-family:var(--m);font-size:12px;white-space:nowrap}
+  .dyn tr.inel td{color:var(--ink-3)}
+  .dyn .share{display:flex;align-items:center;gap:6px}
+  .dyn .share i{display:block;height:7px;border-radius:3px;background:var(--accent);min-width:2px}
+  .pairs{font-size:12.5px;color:var(--ink-2);margin-top:9px}
+  .pairs b{font-weight:600;color:var(--ink)}
+  .best{margin-top:12px}
+  .best .cand{border-left:3px solid var(--line-2);padding:5px 0 5px 10px;margin-top:8px}
+  .best .cand.won{border-left-color:var(--cue2)}
+  .best .lead{font-size:12px;color:var(--ink-3)}
+  .best .q{font-size:13.5px;cursor:pointer} .best .q:hover{text-decoration:underline}
+  .best .meta{font-family:var(--m);font-size:11px;color:var(--ink-3);display:flex;gap:10px;align-items:center;margin-top:3px}
+  .best button{font-size:11.5px;padding:2px 8px}
+  dl.guide{margin:10px 0 0;padding:10px 12px;background:var(--surface-2);border-radius:8px;
+           display:grid;grid-template-columns:minmax(120px,max-content) 1fr;gap:6px 14px;font-size:12.5px}
+  dl.guide dt{font-weight:600;color:var(--ink)}
+  dl.guide dd{margin:0;color:var(--ink-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <div class="barin">
+      <a class="back" href="/">&larr; meetings</a>
+      <h1 id="title">…</h1>
+      <div class="meta" id="meta"></div>
+    </div>
+    <audio id="au" controls preload="metadata"></audio>
+    <span class="autrack" id="autrack"></span>
+  </div>
+
+  <div id="caphealth"></div>
+  <div id="trackbox"></div>
+  <div id="convbox"></div>
+  <div id="cuesbox"></div>
+
+  <div class="cols">
+    <div class="side">
+      <div id="flash"></div>
+      <div id="linkbox"></div>
+      <h2>Voices</h2>
+      <div class="rail" id="rail"></div>
+      <div class="ovbox" id="ovbox"></div>
+      <div class="hoff" id="hoffbox"></div>
+      <div class="hoff" id="vpbox"></div>
+    </div>
+    <div>
+      <h2>Transcript — click any line to hear it</h2>
+          <div class="tx" id="tx"><div class="empty">loading…</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = (p,o) => fetch(p,o).then(r=>r.json());
+const post = (p,body) => api(p,{method:"POST",headers:{"Content-Type":"application/json"},
+                                body:JSON.stringify(body)});
+const sid = new URLSearchParams(location.search).get("session");
+let D = null, sel = null;
+// A global change has to leave a trace: load() redraws the whole rail and takes the
+// panel that issued the request with it, so the confirmation lives at page level and
+// is rendered again after every reload until it is dismissed.
+let flash = null;
+// The contact check raised by the last successful enrolment, and page-level for the same
+// reason flash is: enrolling reloads the whole page, and the panel that asked the
+// question would go with it.
+let link = null;
+const lineEls = {};      // speaker key -> [line elements, in order]
+const cursor  = {};      // speaker key -> which of their turns we last jumped to
+
+function el(t,c,x){const e=document.createElement(t); if(c)e.className=c; if(x!=null)e.textContent=x; return e;}
+function hms(s){s=Math.max(0,Math.round(s));const h=(s/3600)|0,m=((s%3600)/60)|0,x=s%60;
+  return h?`${h}:${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}`:`${m}:${String(x).padStart(2,"0")}`;}
+
+// The two sides are separate recordings. The player used to load only the far end, so
+// clicking one of YOUR lines — or your own Vocal-cues "tense" block — sought the far end
+// to that moment and played its silence (the user, Oct 6, on a customer call). Every
+// seek now names the track its line lives on and the player switches when it has to.
+let auTrack = null;
+function setTrack(track){
+  auTrack = track;
+  $("#au").src = "/api/audio?session="+encodeURIComponent(sid)+"&track="+track;
+  $("#autrack").textContent = track === "mic" ? "▶ your mic" : "▶ the far end";
+}
+function playAt(t, track, play){
+  const a=$("#au");
+  if(!(D && D.tracks && D.tracks.includes(track))) track = auTrack || "system";
+  const go = () => { a.currentTime = t; if(play !== false) a.play(); };
+  if(track !== auTrack){
+    setTrack(track);
+    a.addEventListener("loadedmetadata", go, {once:true});
+    a.load();
+  } else go();
+}
+function trackOfLine(i){ return (i != null && D && D.timeline[i]) ? D.timeline[i].track : "system"; }
+
+async function load(){
+  D = await api("/api/session?id="+encodeURIComponent(sid));
+  if(!D.ok){ $("#tx").textContent = D.why || "could not load"; return; }
+  $("#title").textContent = D.title;
+  $("#meta").textContent = [D.durationText, D.customer, D.mic].filter(Boolean).join("  ·  ");
+  if(!auTrack) setTrack(D.tracks.includes("system") ? "system" : (D.tracks[0]||"system"));
+  drawFlash(); drawCaptureHealth(); drawTracks(); drawLink(); drawRail(); drawTx(); drawOverrides();
+  drawHandoff(); drawVoiceprints();
+  loadCues();      // its own request: the page never waits on it
+  loadAwards();
+}
+
+// ── conversation + awards (step 4) ──────────────────────────────────────────
+// Facts about the meeting with a sense of humour: per meeting, never a standing title,
+// always the number behind it, and one click hides every award for screen-sharing (the
+// choice is remembered in this browser). Unconfirmed voices appear only as "Speaker N".
+let AW = null;
+function awardsHidden(){
+  try{ const v = localStorage.getItem("mt.hideAwards"); if(v !== null) return v === "1"; }catch(e){}
+  return AW ? !AW.fun_labels : false;
+}
+function setAwardsHidden(h){ try{ localStorage.setItem("mt.hideAwards", h ? "1" : "0"); }catch(e){} drawAwards(); }
+
+async function loadAwards(){
+  try{ AW = await api("/api/awards?id="+encodeURIComponent(sid)); }
+  catch(e){ AW = {ok:false, why:"the server did not answer"}; }
+  drawAwards();
+}
+
+async function crownLine(i, btn){
+  if(btn){ btn.disabled = true; }
+  let r; try{ r = await post("/api/awards/crown", {session: sid, i: i}); }catch(e){ r = {ok:false}; }
+  if(!r.ok) alert(r.why || "that did not work");
+  loadAwards();
+}
+
+function seekLine(t, i){ if(t==null) return; cueSeek(t, i); }
+
+function drawAwards(){
+  const box=$("#convbox"); box.innerHTML="";
+  if(!AW) return;
+  const d=el("div","cues");
+  const hd=el("div","hd");
+  hd.appendChild(el("h2",null,"Conversation"));
+  const act=el("div","act"); hd.appendChild(act);
+  d.appendChild(hd); box.appendChild(d);
+  if(!AW.ok){ d.appendChild(el("div","why", AW.why || "could not load")); return; }
+  const hidden = awardsHidden();
+  const tg=el("button",null, hidden ? "Show awards" : "Hide awards");
+  tg.title = "Hide every award — for when you're sharing your screen";
+  tg.onclick=()=>setAwardsHidden(!hidden);
+  act.appendChild(tg);
+  addGuide(act, d, "conversation", AW.guide, drawAwards);
+
+  if(!hidden){
+    if(AW.awards.length){
+      const g=el("div","awards");
+      AW.awards.forEach(a=>{
+        const c=el("div","award");
+        const t=el("div","at"); t.appendChild(el("span",null,a.emoji)); t.appendChild(document.createTextNode(a.title));
+        c.appendChild(t);
+        c.appendChild(el("div","aw", a.who));
+        c.appendChild(el("div","av", a.value));
+        if(a.detail) c.appendChild(el("div","ad", a.detail));
+        if(a.t!=null){ c.title="click to hear it"; c.onclick=()=>seekLine(a.t, a.i); }
+        else c.style.cursor="default";
+        g.appendChild(c);
+      });
+      d.appendChild(g);
+    } else d.appendChild(el("div","why","No awards this meeting — nobody crossed a threshold."));
+  }
+
+  const ppl = AW.dynamics.people;
+  const tb=el("table","dyn");
+  const hr=el("tr");
+  ["Speaker","Talk","Longest run","Started over others","Talked over (kept going)","Slowest answer"]
+    .forEach(h=>hr.appendChild(el("th",null,h)));
+  tb.appendChild(hr);
+  const maxShare = Math.max(...ppl.map(p=>p.share), 0.01);
+  ppl.forEach(p=>{
+    const tr=el("tr", p.eligible ? "" : "inel");
+    tr.appendChild(el("td",null,p.label));
+    const sh=el("td"); const w=el("div","share"); const bar=el("i");
+    bar.style.width = Math.round(90*p.share/maxShare)+"px";
+    w.appendChild(bar); w.appendChild(el("span","n", Math.round(100*p.share)+"%")); sh.appendChild(w); tr.appendChild(sh);
+    tr.appendChild(el("td","n", p.longest ? hms(p.longest.dur) : "—"));
+    tr.appendChild(el("td","n", String(p.overs)));
+    tr.appendChild(el("td","n", p.overed + (p.overed ? " ("+p.held+")" : "")));
+    tr.appendChild(el("td","n", p.slowest ? p.slowest.gap+"s" : "—"));
+    tb.appendChild(tr);
+  });
+  d.appendChild(tb);
+  if(AW.dynamics.matrix.length){
+    const pr=el("div","pairs");
+    pr.appendChild(el("b",null,"Who started over whom: "));
+    pr.appendChild(document.createTextNode(AW.dynamics.matrix.slice(0,6)
+      .map(m=>m.pair+" ×"+m.n).join("   ·   ")));
+    d.appendChild(pr);
+  }
+  d.appendChild(el("div","note","Talk-overs are checked against the audio: both sides audibly talking, "
+    + "not just overlapping timestamps. Short “yeah”s don’t count."));
+
+  if(hidden) return;
+  const b=el("div","best");
+  b.appendChild(el("h2",null,"😂 Best Saying"));
+  const L=AW.laughs||{};
+  if(!AW.analyzed && !L.scanned){
+    b.appendChild(el("div","why","Best Saying listens for the room laughing. Analyze vocal cues "
+      + "for this meeting (below) and the candidates appear here."));
+  } else if(!L.model && !L.scanned){
+    b.appendChild(el("div","why","Best Saying needs the laughter model — run ./make.sh once, then Re-measure below."));
+  } else if(!L.scanned){
+    b.appendChild(el("div","why","Not listened for laughter yet — Re-measure below to add it."));
+  } else if(!AW.best.candidates.length && !AW.best.crowned){
+    b.appendChild(el("div","why","No laughter heard (" + L.events + " laughs on record). Far-end laughter is "
+      + "often stripped by Zoom/Teams noise suppression."));
+  }
+  const cands = AW.best.candidates.slice();
+  const cr = AW.best.crowned;
+  if(cr && !cands.some(c=>c.i===cr.i)) cands.unshift(Object.assign({lead:[], laughs:0}, cr));
+  cands.forEach(c=>{
+    const won = cr ? cr.i===c.i : c===cands[0];
+    const w=el("div","cand"+(won?" won":""));
+    (c.lead||[]).forEach(l=>w.appendChild(el("div","lead", l.who+": "+l.text)));
+    const q=el("div","q", c.who+": “"+c.text+"”");
+    q.title="click to hear it"; q.onclick=()=>seekLine(c.s, c.i);
+    w.appendChild(q);
+    const m=el("div","meta");
+    m.appendChild(el("span",null, hms(c.s)));
+    if(c.laughs) m.appendChild(el("span",null, c.laughs+" laugh"+(c.laughs===1?"":"s")+" after it"));
+    if(cr && cr.i===c.i){
+      m.appendChild(el("span",null,"👑 your pick"));
+      const u=el("button",null,"un-crown"); u.onclick=()=>crownLine(null,u); m.appendChild(u);
+    } else {
+      const k=el("button",null,"👑 Crown"); k.title="Make this the Best Saying — your pick always wins";
+      k.onclick=()=>crownLine(c.i,k); m.appendChild(k);
+    }
+    w.appendChild(m);
+    b.appendChild(w);
+  });
+  d.appendChild(b);
+}
+
+// ── vocal cues ──────────────────────────────────────────────────────────────
+// Experimental, opt-in, mt web only (REFERENCE.md). Colours are distance from
+// THAT person's own normal; the words describe delivery, never feelings or honesty.
+// Scored against whoever is confirmed RIGHT NOW, so it is re-fetched after every load()
+// — confirming a speaker above makes their rows appear without re-measuring anything.
+// Names are file content: textContent throughout, SVG built node by node.
+let CU = null, cuTimer = null;
+const lineByIndex = [];  // timeline index -> transcript line element (filled by drawTx)
+const SVGNS = "http://www.w3.org/2000/svg";
+const BAND_KEY = ["below their normal","their normal","elevated","well above normal"];
+
+async function loadCues(){
+  const wasRunning = !!(CU && CU.job && CU.job.state === "running");
+  try{ CU = await api("/api/cues?id="+encodeURIComponent(sid)); }
+  catch(e){ CU = {ok:false, why:"the server did not answer"}; }
+  drawCues();
+  if(wasRunning && !(CU.job && CU.job.state === "running")) loadAwards();  // laughter + spice now in
+  clearTimeout(cuTimer);
+  if(CU && CU.job && CU.job.state === "running") cuTimer = setTimeout(loadCues, 2000);
+}
+
+async function cuesAction(path, body, btn){
+  if(btn){ btn.disabled = true; btn.textContent = "working…"; }
+  let r;
+  try{ r = await post(path, Object.assign({session: sid}, body||{})); }
+  catch(e){ r = {ok:false, why:"the server did not answer"}; }
+  if(!r.ok) alert(r.why || "that did not work");
+  loadCues();
+}
+
+function cueBtn(label, fn){ const b=el("button",null,label); b.onclick=()=>fn(b); return b; }
+
+// "Field guide" — the same toggle the contacts and tracking sheets use. The text comes
+// from the server (cues.GUIDE / awards.GUIDE), never from this page. Open/closed is
+// remembered per panel in this browser.
+function guideOpen(key){ try{ return localStorage.getItem("mt.guide."+key) === "1"; }catch(e){ return false; } }
+function addGuide(act, panel, key, items, redraw){
+  if(!items || !items.length) return;
+  const open = guideOpen(key);
+  const b=el("button",null, open ? "Hide field guide" : "Field guide");
+  b.onclick=()=>{ try{ localStorage.setItem("mt.guide."+key, open ? "0" : "1"); }catch(e){} redraw(); };
+  act.insertBefore(b, act.firstChild);
+  if(!open) return;
+  const dl=el("dl","guide");
+  items.forEach(([t, x])=>{ dl.appendChild(el("dt",null,t)); dl.appendChild(el("dd",null,x)); });
+  panel.appendChild(dl);
+}
+
+function drawCues(){
+  const box=$("#cuesbox"); box.innerHTML="";
+  if(!CU) return;
+  const d=el("div","cues");
+  const hd=el("div","hd");
+  hd.appendChild(el("h2",null,"Vocal cues"));
+  hd.appendChild(el("span","exp","experimental"));
+  const act=el("div","act"); hd.appendChild(act);
+  d.appendChild(hd);
+  box.appendChild(d);
+  addGuide(act, d, "cues", CU.guide, drawCues);
+  if(!CU.ok){ d.appendChild(el("div","why", CU.why || "could not load")); return; }
+
+  const job = CU.job || null;
+  if(job && job.state === "running"){
+    d.appendChild(el("div","why","Measuring… " + (job.total ? job.done+" of "+job.total+" lines" : "decoding the audio")));
+    const bar=el("div","prog"), i=el("i");
+    i.style.width = (job.total ? Math.round(100*job.done/job.total) : 3) + "%";
+    bar.appendChild(i); d.appendChild(bar);
+    return;
+  }
+  if(job && job.state === "failed"){
+    d.appendChild(el("div","why","The last measurement failed:"));
+    d.appendChild(el("pre",null, job.why || ""));
+  }
+  if(CU.error) d.appendChild(el("div","why", CU.error));
+  if(!CU.analyzed){
+    d.appendChild(el("div","why","How each confirmed speaker’s delivery — pitch, pace, "
+      + "pauses, talk-over — moves against their own normal. Measured on this computer. "
+      + "Only meetings you analyze are measured, and only they feed anyone’s baseline."));
+    act.appendChild(cueBtn("Analyze vocal cues", b => cuesAction("/api/cues/analyze", {}, b)));
+    return;
+  }
+  if(CU.stale){
+    d.appendChild(el("div","why", CU.why));
+    act.appendChild(cueBtn("Analyze again", b => cuesAction("/api/cues/analyze", {force:true}, b)));
+    act.appendChild(cueBtn("Clear", b => cuesAction("/api/cues/clear", {}, b)));
+    return;
+  }
+  act.appendChild(cueBtn("Re-measure", b => cuesAction("/api/cues/analyze", {force:true}, b)));
+  act.appendChild(cueBtn("Clear", b => {
+    if(confirm("Delete this meeting's vocal-cue measurements? Nothing else is touched, "
+             + "and you can analyze it again any time.")) cuesAction("/api/cues/clear", {}, b);
+  }));
+
+  const key=el("div","key");
+  BAND_KEY.forEach((t,i)=>{ const s=el("span"); const sw=el("i"); sw.style.background="var(--cue"+i+")";
+    s.appendChild(sw); s.appendChild(document.createTextNode(t)); key.appendChild(s); });
+  const sn=el("span"); const sw=el("i"); sw.style.background="var(--cue-none)";
+  sn.appendChild(sw); sn.appendChild(document.createTextNode("not enough to judge")); key.appendChild(sn);
+  d.appendChild(key);
+  d.appendChild(el("div","words","Energy: " + CU.words.energy.join(" · ")
+    + "      Friction: " + CU.words.friction.join(" · ")
+    + "      (each reading smooths ~" + CU.window_sec + "s of that person)"));
+
+  const dur = Math.max(1, D && D.duration || 1);
+  if(CU.interrupts && CU.interrupts.length){
+    const row=el("div","row");
+    row.appendChild(el("span","lab","talk-over"));
+    const sv=document.createElementNS(SVGNS,"svg");
+    sv.setAttribute("class","axis"); sv.setAttribute("viewBox","0 0 1000 14");
+    sv.setAttribute("preserveAspectRatio","none");
+    CU.interrupts.forEach(x=>{
+      const r=document.createElementNS(SVGNS,"rect");
+      r.setAttribute("x", (1000*x.t/dur).toFixed(1)); r.setAttribute("y","2");
+      r.setAttribute("width","2.5"); r.setAttribute("height","10"); r.setAttribute("class","tick");
+      const tt=document.createElementNS(SVGNS,"title");
+      tt.textContent = hms(x.t) + " · " + x.name + " started over someone";
+      r.appendChild(tt); r.onclick=()=>cueSeek(x.t, null);
+      sv.appendChild(r);
+    });
+    row.appendChild(sv); d.appendChild(row);
+  }
+
+  if(!CU.people.length)
+    d.appendChild(el("div","note","No confirmed or strongly matched speakers yet — confirm voices below and their cues appear here."));
+  CU.people.forEach(p => d.appendChild(cuePerson(p, dur)));
+
+  if(CU.unscored && CU.unscored.length){
+    const n = CU.unscored.reduce((a,u)=>a+u.lines,0);
+    d.appendChild(el("div","note", "Not scored: " + n + " line" + (n===1?"":"s") + " from "
+      + CU.unscored.length + " voice" + (CU.unscored.length===1?"":"s") + " not confirmed yet. "
+      + "Strong voiceprint matches count on their own; these are weaker or unnamed, and a cue "
+      + "on the wrong person is worse than none — confirm them under Voices."));
+  }
+  d.appendChild(el("div","note", "Delivery against that person’s own normal — not feelings, "
+    + "not honesty. Measured " + (CU.analyzed_at || "").replace("T"," ").slice(0,16) + " UTC."));
+}
+
+function cuePerson(p, dur){
+  const w=el("div","person");
+  const pn=el("div","pn");
+  pn.appendChild(el("b",null,p.name));
+  if(p.matched){
+    const m=el("span","pill sc","matched");
+    m.title="Strong voiceprint match, not confirmed. Wrong? Open them under Voices and click Not them.";
+    m.style.marginLeft="6px"; pn.appendChild(m);
+  }
+  const b=p.baseline;
+  const basis = b.kind==="history" ? "vs their normal from "+b.sessions+" other meeting"+(b.sessions===1?"":"s")
+              : b.kind==="call" ? "vs this call only — no other analyzed meetings yet"
+              : "not enough speech to judge";
+  pn.appendChild(el("span","conf", "●".repeat(p.confidence) + "○".repeat(3-p.confidence) + "  " + basis));
+  if(b.kind!=="none"){
+    const mostly = (sh, words) => { let i=0; sh.forEach((x,k)=>{ if(x>sh[i]) i=k; });
+      const rest = sh.map((x,k)=>[x,k]).filter(([x,k])=>k!==i && x>=0.1)
+                     .map(([x,k])=>words[k]+" "+Math.round(100*x)+"%");
+      return words[i] + " " + Math.round(100*sh[i]) + "%" + (rest.length ? " (" + rest.join(", ") + ")" : ""); };
+    pn.appendChild(el("span","sum", "Energy mostly " + mostly(p.energy_share, CU.words.energy)
+      + "  ·  Friction mostly " + mostly(p.friction_share, CU.words.friction)));
+  }
+  w.appendChild(pn);
+  [["Energy","E","eb",CU.words.energy],["Friction","F","fb",CU.words.friction]].forEach(([lab,val,bk,words])=>{
+    const row=el("div","row");
+    row.appendChild(el("span","lab",lab));
+    const sv=document.createElementNS(SVGNS,"svg");
+    sv.setAttribute("viewBox","0 0 1000 16"); sv.setAttribute("preserveAspectRatio","none");
+    p.points.forEach(pt=>{
+      const r=document.createElementNS(SVGNS,"rect");
+      const x=1000*pt.s/dur, wd=Math.max(1.5, 1000*(pt.e-pt.s)/dur);
+      r.setAttribute("x", x.toFixed(1)); r.setAttribute("y","0");
+      r.setAttribute("width", wd.toFixed(1)); r.setAttribute("height","16");
+      r.setAttribute("class", pt[bk]==null ? "bn" : "b"+pt[bk]);
+      const tt=document.createElementNS(SVGNS,"title");
+      tt.textContent = cueTip(p, pt, lab, val, bk, words);
+      r.appendChild(tt);
+      r.onclick=()=>cueSeek(pt.s, pt.i);
+      sv.appendChild(r);
+    });
+    row.appendChild(sv); w.appendChild(row);
+  });
+  return w;
+}
+
+function cueTip(p, pt, lab, val, bk, words){
+  const L=[hms(pt.s) + "  " + p.name + "  ·  " + lab + ": "
+           + (pt[bk]==null ? "not enough to judge" : words[pt[bk]] + " (" + (pt[val]>=0?"+":"") + pt[val] + ")")];
+  const f=[];
+  if(pt.dst!=null) f.push("pitch " + (pt.dst>=0?"+":"") + pt.dst + " semitones vs normal");
+  if(pt.drate!=null) f.push("pace " + (pt.drate>=0?"+":"") + pt.drate + "%");
+  if(pt.lat!=null) f.push(pt.lat < 0 ? "came in over the last speaker" : "gap before speaking " + pt.lat + "s");
+  if(pt.interrupt) f.push("started over someone");
+  if(f.length) L.push(f.join("  ·  "));
+  L.push("click to hear it");
+  return L.join("\n");
+}
+
+function cueSeek(t, i){
+  playAt(t, trackOfLine(i));
+  const ln = i!=null ? lineByIndex[i] : null;
+  if(ln){
+    document.querySelectorAll(".ln.now").forEach(x=>x.classList.remove("now"));
+    ln.classList.add("now"); ln.scrollIntoView({block:"center", behavior:"smooth"});
+  }
+}
+
+// Which tracks this transcript was built from, and a way to rebuild it from the others.
+// Both tracks are always on disk; a re-process only picks. Loud when tracks.py found the
+// same room audio on both (lines twice, or a cleaner Teams track going unused), a quiet
+// one-liner otherwise. Every string from the server goes in as textContent.
+const TRACK_MODES = {
+  system: {label: "Teams track only", what: "the system (Teams) track, which carries everyone"},
+  mic:    {label: "Room mic only, split voices", what: "the room mic, split into separate voices"},
+  both:   {label: "Both tracks", what: "both tracks (the normal desk set-up)"},
+};
+let reprocTimer = null;
+function currentMode(){
+  const u = (D && D.tracks_used) || [];
+  return u.length === 1 ? u[0] : "both";
+}
+function drawTracks(){
+  const box = $("#trackbox"); box.innerHTML = "";
+  if(reprocTimer){ clearTimeout(reprocTimer); reprocTimer = null; }
+  if(!D || !(D.tracks || []).includes("system") || !(D.tracks || []).includes("mic")) return;
+  const tc = D.track_check || {}, rp = D.reprocess || null;
+
+  if(rp && rp.state === "running"){
+    const c = el("div", "caph mid");
+    c.appendChild(el("b", null, "Re-processing with " + (TRACK_MODES[rp.mode] || {}).what + "…"));
+    c.appendChild(el("div", null, rp.step || "starting"));
+    box.appendChild(c);
+    reprocTimer = setTimeout(async () => {
+      const R = await api("/api/session?id=" + encodeURIComponent(sid));
+      if(R.ok && R.reprocess && R.reprocess.state === "running"){ D.reprocess = R.reprocess; drawTracks(); }
+      else load();
+    }, 3000);
+    return;
+  }
+
+  // same_room: the Teams track covers the mic, so it is recommended. overlap: much is on
+  // both, but the mic holds speech the call does not (the user's own voice, on the Oct 18
+  // test) — just as loud, but nothing is recommended.
+  const same = tc.verdict === "same_room", overlap = tc.verdict === "overlap";
+  const loud = same || overlap;
+  const cur = currentMode();
+  const c = el(loud ? "div" : "details", loud ? "caph mid" : "caph");
+  if(!loud && rp) c.open = true;       // a done/failed note must not hide in a closed fold
+  if(same){
+    c.appendChild(el("b", null, cur === "system" ? "Same room audio on both tracks: this transcript uses the Teams track."
+                               : "Same room audio on both tracks."));
+    c.appendChild(el("div", null, tc.headline || ""));
+  } else if(overlap){
+    c.appendChild(el("b", null, "Some of this meeting is on both tracks."));
+    c.appendChild(el("div", null, tc.headline || ""));
+  } else {
+    c.appendChild(el("summary", null, "Re-process this meeting from its audio…"
+                     + (tc.headline ? "  (" + tc.headline + ")" : "")));
+  }
+  if(rp && rp.state === "failed")
+    c.appendChild(el("div", "warn", "The last re-process did not finish: " + (rp.step || "no detail")
+                     + ". The earlier transcript is unchanged."));
+  if(rp && rp.state === "done" && rp.backup)
+    c.appendChild(el("div", "say", "Re-processed. The previous version is in " + rp.backup + "."));
+  const row = el("div"); row.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin-top:10px";
+  // tracks.py recommends whichever track covers the other, if one does.
+  const rec = {system_only: "system", mic_only: "mic"}[tc.recommend] || null;
+  const order = rec ? [rec, ...["both", "mic", "system"].filter(m => m !== rec)]
+                    : overlap ? ["both", "mic", "system"] : ["both", "system", "mic"];
+  for(const m of order){
+    const b = el("button", m === rec && cur !== m ? "go" : "ghost",
+                 TRACK_MODES[m].label + (m === cur ? "  (current)" : "")
+                 + (m === rec && cur !== m ? "  — recommended" : ""));
+    b.disabled = m === cur;
+    b.onclick = () => reprocess(m);
+    row.appendChild(b);
+  }
+  c.appendChild(row);
+  box.appendChild(c);
+}
+async function reprocess(mode){
+  const ok = confirm("Re-process this meeting from " + TRACK_MODES[mode].what + "?\n\n"
+    + "The transcript is rebuilt from the audio. Names set on this page won't carry over; "
+    + "voices with a saved voiceprint are matched again automatically. The current version "
+    + "is saved in the meeting's reprocess-backups folder first.");
+  if(!ok) return;
+  const r = await api("/api/reprocess", {method: "POST", headers: {"Content-Type": "application/json"},
+                                         body: JSON.stringify({id: sid, mode})});
+  if(!r.ok){ alert(r.why || "could not start"); return; }
+  load();
+}
+
+// The recorder's own verdict on this recording, after the fact. Silent when the tap was
+// never in doubt — which is nearly always, and is the only way the loud case stays loud.
+// Every string here is file content: textContent throughout, no markup.
+function drawCaptureHealth(){
+  const box=$("#caphealth"); box.innerHTML="";
+  const h = (D && D.capture_health) || null;
+  if(!h) return;
+  const st = h.state || "ok";
+  const evs = h.events || [];
+  if(st === "ok" && !h.attempts) return;
+
+  let cls = "", head = "", body = "";
+  if(st === "dead"){
+    cls = "bad";
+    head = "The system-audio tap was reported dead during this recording"
+         + (h.sinceText ? " \u2014 from " + h.sinceText : "") + ".";
+    body = "It never came back before the recording ended, so the far side is probably "
+         + "missing from that point on. Your own mic track is unaffected.";
+  } else if(st === "recovered"){
+    cls = "mid";
+    head = "System audio dropped out" + (h.sinceText ? " at " + h.sinceText : "")
+         + (h.atText ? " and came back at " + h.atText : "") + ".";
+    body = "That stretch is missing from the far side of this transcript.";
+  } else if(st === "ask"){
+    cls = "mid";
+    head = "The recorder flagged a silent stretch"
+         + (h.sinceText ? " at " + h.sinceText : "") + ", and it was never settled.";
+    body = "It may simply have been nobody else talking. Worth a listen before quoting "
+         + "anything from around there.";
+  } else {
+    head = "The audio tap was rebuilt " + h.attempts + " time"
+         + (h.attempts === 1 ? "" : "s") + " during this recording.";
+    body = "Each rebuild costs a fraction of a second, into the same files.";
+  }
+  const c = el("div","caph" + (cls ? " " + cls : ""));
+  c.appendChild(el("b", null, head));
+  c.appendChild(el("div", null, body));
+  if(evs.length){
+    const det = el("details");
+    det.appendChild(el("summary", null, "what the recorder logged (" + evs.length + ")"));
+    det.appendChild(el("div","evs",
+      evs.map(e => (e.tText || "") + "  " + (e.text || e.event || "")).join("\n")));
+    c.appendChild(det);
+  }
+  box.appendChild(c);
+}
+
+function drawFlash(){
+  const box=$("#flash"); box.innerHTML="";
+  if(!flash) return;
+  const c=el("div","flash"+(flash.bad?" bad":""));
+  c.appendChild(el("div",null,flash.text));
+  // user-typed, so it goes in as text and never as markup
+  if(flash.reason) c.appendChild(el("div","freason","reason: "+flash.reason));
+  const acts=el("div","acts");
+  if(flash.undo){
+    const u=el("button","ghost",flash.undo.label);
+    u.onclick=async()=>{ u.disabled=true;
+      const r=await post(flash.undo.url, flash.undo.body);
+      flash = r.ok ? {text:r.note||"done"} : {text:"failed: "+(r.why||""), bad:true};
+      await load(); };
+    acts.appendChild(u);
+  }
+  const x=el("button","ghost","Dismiss"); x.onclick=()=>{ flash=null; drawFlash(); };
+  acts.appendChild(x); c.appendChild(acts);
+  box.appendChild(c);
+}
+
+function drawRail(){
+  const rail=$("#rail"); rail.innerHTML="";
+  D.speakers.forEach(sp=>{
+    const b=el("button","sp"+(sp.key===sel?" on":"")+(sp.verified?" ver":"")+(sp.mixed?" mix":""));
+    b.appendChild(el("div","n", sp.name));
+    const r=el("div","r");
+    r.appendChild(el("span","pill", sp.secsText+" · "+sp.lines+" lines"));
+    if(sp.score!=null) r.appendChild(el("span","pill sc","match "+sp.score.toFixed(2)));
+    if(sp.selfsim!=null){
+      // Same three bands as the panel, so the rail already tells you which groups are
+      // safe to enrol from before you open any of them.
+      const th=selfThresholds(), n=Number(sp.selfsim);
+      const k = (sp.mixed || n<th.min) ? "bad" : (n<th.caution ? "mid" : "ok");
+      const pl=el("span","pill "+k,"self "+n.toFixed(2));
+      pl.title = verdict(sp.selfsim);
+      r.appendChild(pl);
+    }
+    if(sp.unassigned && sp.mixed) r.appendChild(el("span","pill bad", sp.unassigned+" unassigned"));
+    if(sp.is_mic) r.appendChild(el("span","pill ok","you"));
+    else if(sp.verified) r.appendChild(el("span","pill ok","confirmed"));
+    else if(sp.matched){
+      const m=el("span","pill ok","matched");
+      m.title="Strong voiceprint match — already counted in cues and awards. Confirm is optional.";
+      r.appendChild(m);
+    }
+    // Whether this name has a voiceprint behind it is the thing that decides which
+    // controls are worth showing, so say it on the button rather than only inside.
+    if(sp.print) r.appendChild(el("span","pill vp","voiceprint"));
+    else if(sp.retired_print) r.appendChild(el("span","pill ret","print retired"));
+    b.appendChild(r);
+    b.onclick=()=>{
+      const opening = sel !== sp.key;
+      sel = opening ? sp.key : null;
+      drawRail(); drawTx();
+      if(opening) jumpTo(sp.key, 0, false);   // take me to where they speak
+    };
+    const jump=el("button","jump","\u25b6");
+    jump.title="Jump to their first line and play";
+    jump.onclick=(ev)=>{ ev.stopPropagation();
+      if(sel!==sp.key){ sel=sp.key; drawRail(); drawTx(); }
+      jumpTo(sp.key, 0, true); };
+    b.appendChild(jump);
+    rail.appendChild(b);
+    if(sp.key===sel && !sp.is_mic) rail.appendChild(namePanel(sp));
+  });
+}
+
+function namePanel(sp){
+  const c=el("div","card panel");
+  if(sp.mixed){
+    const w=el("div","warn");
+    w.innerHTML="<b>More than one voice here.</b> Naming the whole group would put every "+
+      "line you have not checked on one person. Pick off the odd lines with "+
+      "<b>not them?</b>, then assign whatever is left.";
+    c.appendChild(w);
+  }
+  // Only meaningful for a mixed group: a normal cluster has no per-line owners and
+  // does not need any, so reporting "146 lines have no owner" there is just noise.
+  if(sp.mixed){
+    c.appendChild(el("div","lbl", sp.unassigned
+      ? sp.unassigned+" line"+(sp.unassigned===1?"":"s")+" still unclaimed"
+      : "every line here now has an owner"));
+  }
+  const nav=el("div","nav");
+  const prev=el("button","ghost","\u2039 prev");
+  const next=el("button","ghost","next \u203a");
+  const cnt=el("span","cnt"); cnt.id="cnt-"+sp.key;
+  cnt.textContent = (sp.lines||0) + " turn" + ((sp.lines||0)===1?"":"s");
+  prev.onclick=()=>jumpTo(sp.key,(cursor[sp.key]??0)-1,true);
+  next.onclick=()=>jumpTo(sp.key,(cursor[sp.key]??-1)+1,true);
+  nav.appendChild(prev); nav.appendChild(next); nav.appendChild(cnt);
+  c.appendChild(nav);
+
+  c.appendChild(el("div","lbl", sp.mixed ? "Assign the remaining lines to…" : "Who is this?"));
+  // Independent sanity check on a label. Teams shows initials during a screen share, so
+  // if you type a name whose initials were never on screen, that deserves another listen.
+  const check=el("div","say"); check.style.color="var(--ink-3)";
+  const initialsOf = n => { const w=(n||"").split(/[\s.]+/).filter(x=>x && /[A-Za-z]/.test(x[0]));
+    return w.length>1 ? (w[0][0]+w[w.length-1][0]).toUpperCase() : ""; };
+  function crossCheck(n){
+    const ini=initialsOf(n), seen=D.seen_initials||[];
+    if(!ini || !seen.length){ check.textContent=""; return; }
+    const hit = seen.indexOf(ini)>=0;
+    check.textContent = hit ? "\u2713 "+ini+" appeared on screen in this meeting"
+                            : "\u26a0 "+ini+" never appeared on screen \u2014 worth another listen";
+    check.style.color = hit ? "var(--ok)" : "var(--warn)";
+  }
+  const free=el("input"); free.type="text"; free.placeholder="type a name";
+  const chips=el("div","chips");
+
+  // If a voiceprint (or the screen) already proposed a real person, start with that
+  // selected and listed first, so confirming is one click instead of hunting for the
+  // name in a scrolling list. Placeholders are not real proposals.
+  const isPlaceholder = n => !n || /^Speaker \d+$/.test(n) || n === "Unidentified voice"
+      || /^Multiple voices/.test(n) || /'s room \d+$/.test(n);
+  const suggested = (!sp.mixed && !isPlaceholder(sp.name)) ? sp.name : "";
+  let chosen = suggested;
+
+  const confirm=el("button","go","Confirm");
+  function paint(){
+    Array.prototype.forEach.call(chips.children,b=>b.classList.toggle("sel",b.dataset.n===chosen));
+    confirm.disabled = !(chosen || free.value.trim());
+  }
+  const ordered = (D.candidates||[]).slice();
+  if(suggested){
+    const i = ordered.indexOf(suggested);
+    if(i >= 0) ordered.splice(i,1);
+    ordered.unshift(suggested);                      // always visible without scrolling
+  }
+  ordered.forEach(n=>{
+    const b=el("button","chip",n); b.dataset.n=n;
+    if(n === suggested){ b.classList.add("sugg"); b.title="already matched — click Confirm"; }
+    b.onclick=()=>{ chosen = (chosen===n?"":n); free.value="";
+      Array.prototype.forEach.call(chips.children,z=>z.hidden=false); crossCheck(chosen); paint(); };
+    chips.appendChild(b);
+  });
+  free.oninput=()=>{ if(free.value.trim()) chosen="";
+    crossCheck(free.value.trim()||chosen);
+    const q=free.value.trim().toLowerCase();
+    Array.prototype.forEach.call(chips.children,b=>{ b.hidden = q && b.dataset.n.toLowerCase().indexOf(q)<0; });
+    paint(); };
+  c.appendChild(free); c.appendChild(chips); c.appendChild(check);
+  const say=el("div","say","");
+  async function send(status,name){
+    confirm.disabled=true; say.textContent="saving…";
+    const r=await api("/api/confirm",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({session:sid,key:sp.key,name:name||"",status})});
+    say.textContent = r.ok ? (r.notes||[]).join(" · ") : ("failed: "+(r.why||""));
+    await load();
+    // Enrolling is the moment the name stops being local to this meeting, so it is also
+    // the moment to ask whether the contact list has ever heard of them.
+    if(r.ok && r.enrolled) await askContacts(name);
+  }
+  // Directly above the button that enrols: how tight this group is, in plain words.
+  const q = qualityBlock(sp);
+  if(q) c.appendChild(q);
+  const acts=el("div","acts");
+  if(sp.mixed){
+    confirm.textContent="Assign remaining lines";
+    confirm.onclick=async()=>{
+      const n = free.value.trim()||chosen; if(!n) return;
+      confirm.disabled=true; say.textContent="assigning…";
+      const r=await api("/api/reassign-rest",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({session:sid,key:sp.key,name:n})});
+      say.textContent = r.ok ? (r.note||"done") : ("failed: "+(r.why||""));
+      await load();
+    };
+  } else {
+    confirm.onclick=()=>send("confirmed", free.value.trim()||chosen);
+  }
+  // "This was wrong" — only where a name came from a match rather than from you.
+  if(suggested && !sp.verified){
+    const wrong=el("button","ghost","\u2717 Not "+suggested.split(" ")[0]);
+    wrong.title="The match is wrong: un-name this voice here, then pick the right name above if you know it.";
+    wrong.onclick=()=>send("notthem");
+    acts.appendChild(confirm); acts.appendChild(wrong);
+  }
+  const dunno=el("button","ghost","Don't know");
+  dunno.title="Un-name this speaker in THIS meeting only. Any voiceprint is left alone.";
+  dunno.onclick=()=>send("unknown");
+  const multi=el("button","ghost","Multiple people"); multi.onclick=()=>send("multiple");
+  if(!confirm.parentNode) acts.appendChild(confirm);
+  acts.appendChild(dunno); acts.appendChild(multi);
+  c.appendChild(acts); c.appendChild(say);
+  // Say the blast radius out loud rather than relying on layout. The user expected
+  // un-naming a speaker to forget the voiceprint too; it does not, and the page should
+  // not make them find that out afterwards.
+  const lscope=el("div"); lscope.style.marginTop="10px";
+  lscope.appendChild(el("span","scope","this meeting only"));
+  const ls=el("div","zb"); ls.style.marginTop="5px";
+  ls.textContent = sp.print
+    ? "Don\u2019t know, Not them and Multiple people change this meeting only. Confirm "+
+      "also averages this meeting into the voiceprint (one sample among "+
+      (sp.print.samples||"its")+") \u2014 useful after a new mic or phone, never required. "+
+      "Retiring the print, below, changes every future meeting."
+    : "Confirm, Don\u2019t know and Multiple people change this meeting and nothing else. "+
+      "Confirming a name also enrols this voice, so it is recognised in future meetings.";
+  c.appendChild(lscope); c.appendChild(ls);
+  const zone = voiceprintZone(sp);
+  if(zone) c.appendChild(zone);
+  if(suggested){
+    // A live pick says so: it's your own call from during the meeting, asking to be
+    // confirmed now, not a voiceprint guess.
+    const live = /^named live by you/.test(sp.basis || "");
+    const why = live ? (sp.basis.replace(/; confirm or change$/, ""))
+              : sp.score != null ? ("matched at " + Number(sp.score).toFixed(2)) : "already named";
+    const hint = el("div","lbl");
+    hint.textContent = "\u2713 " + suggested + " is " + why + (sp.matched
+      ? " \u2014 strong enough to count as them already; Confirm is optional, \u2717 Not if it\u2019s wrong"
+      : " \u2014 Confirm accepts it");
+    hint.style.color = "var(--ok)";
+    c.insertBefore(hint, free);
+  }
+  setTimeout(()=>{ paint(); crossCheck(chosen); }, 0);
+  return c;
+}
+
+// How tightly this cluster holds together, which is the best available predictor of
+// whether enrolling from it produces a clean voiceprint or a blend of two people. It was
+// computed on every session already and shown nowhere. Advisory only — it never disables
+// Confirm, because the number is evidence and the user is the one who decides.
+// Thresholds come from config.json via /api/session; nothing here is hardcoded.
+function selfThresholds(){
+  const t = (D && D.thresholds) || {};
+  return {min: (t.min_self != null) ? Number(t.min_self) : 0.60,
+          caution: (t.caution_self != null) ? Number(t.caution_self) : 0.88};
+}
+function verdict(v){
+  if(v == null) return "self-similarity not measured";
+  const {min, caution} = selfThresholds(), n = Number(v);
+  if(n < min) return "self "+n.toFixed(3)+" \u2014 impure, that is more than one person";
+  if(n < caution) return "self "+n.toFixed(3)+" \u2014 loose, worth another listen";
+  return "self "+n.toFixed(3)+" \u2014 tight, one voice";
+}
+function tone(v){
+  if(v == null) return "var(--ink-3)";
+  const {min, caution} = selfThresholds(), n = Number(v);
+  return n < min ? "var(--alert)" : (n < caution ? "var(--warn)" : "var(--ok)");
+}
+
+function qualityBlock(sp){
+  const v = sp.selfsim;
+  if(v == null) return null;
+  const {min, caution} = selfThresholds();
+  const n = Number(v);
+  let cls="", label="Tight — reads as one voice", why=
+    "Enrolling from this group should produce a clean voiceprint.";
+  if(n < min){
+    cls="bad2"; label="Impure — more than one person in here";
+    why="Below "+min.toFixed(2)+", the point at which mt treats a group as holding "+
+        "several people. A voiceprint built from this would be a blend of them and "+
+        "would put the wrong name on other meetings later.";
+  } else if(n < caution){
+    cls="warn2"; label="Loose — worth another listen";
+    why="Under "+caution.toFixed(2)+", which is noticeably below what a single-speaker "+
+        "group usually scores here. It may still be one person, but it may also have a "+
+        "second voice folded in — and that voiceprint would mis-name people afterwards.";
+  }
+  const q=el("div","qual"+(cls?" "+cls:""));
+  const h=el("div","qh");
+  h.appendChild(el("span","qn", n.toFixed(3)));
+  h.appendChild(el("span","ql", label));
+  q.appendChild(h);
+  q.appendChild(el("div","qx", why));
+  // 0.5 → 1.0 is the only part of the range that carries any information
+  const pct = x => Math.max(0, Math.min(100, (x - 0.5) / 0.5 * 100));
+  const bar=el("div","qbar"); const fill=el("i"); fill.style.width = pct(n)+"%";
+  bar.appendChild(fill);
+  [[min,"impure below here"],[caution,"typical single speaker starts here"]].forEach(([x,ttl])=>{
+    if(x <= 0.5) return;
+    const k=el("div","qtick"); k.style.left = pct(x)+"%"; k.title = x.toFixed(2)+" — "+ttl;
+    bar.appendChild(k);
+  });
+  q.appendChild(bar);
+  q.appendChild(el("div","qs","cluster self-similarity \u00b7 impure under "+
+    min.toFixed(2)+" \u00b7 typical here \u2248 0.91"));
+  return q;
+}
+
+// --------------------------------------------------- the global half of the panel
+//
+// Un-naming a speaker and retiring their voiceprint are different blast radii and the
+// page never conflates them: the local buttons above are plain, this is boxed, tinted
+// and tagged ALL MEETINGS, and it only appears where there is actually a print behind
+// the name. Retiring can also un-name the speaker here, but only because the checkbox
+// says so before the click — it is never inferred.
+function voiceprintZone(sp){
+  if(sp.is_mic) return null;
+  if(sp.print) return retireZone(sp);
+  if(sp.retired_print) return restoreZone(sp);
+  return null;
+}
+
+function zoneHead(z, title, calm){
+  if(calm) z.classList.add("calm");
+  const h=el("div","zhead");
+  h.appendChild(el("span","scope glob","all meetings"));
+  h.appendChild(el("span","zt", title));
+  z.appendChild(h);
+}
+
+function retireZone(sp){
+  const pr=sp.print, z=el("div","zone");
+  zoneHead(z, "Voiceprint enrolled");
+  const n = pr.samples==null ? "" : " ("+pr.samples+" sample"+(pr.samples===1?"":"s")+
+            (pr.updated ? ", updated "+String(pr.updated).slice(0,10) : "")+")";
+  z.appendChild(el("div","zb", "\u201c"+pr.name+"\u201d is enrolled"+n+
+    ", so this voice is matched automatically wherever it turns up."));
+  const em=el("div","zb em");
+  em.appendChild(el("b",null,"Retiring it affects all future meetings, not just this one."));
+  em.appendChild(el("span",null," The vector is moved to voiceprints/retired/ and never "+
+    "deleted, so it is reversible."));
+  z.appendChild(em);
+  const reason=el("input"); reason.type="text"; reason.maxLength=500;
+  reason.placeholder="why? (stored, and shown by mt speakers)";
+  z.appendChild(reason);
+
+  const both=el("label","chk");
+  const cb=el("input"); cb.type="checkbox"; cb.checked=true;
+  both.appendChild(cb);
+  both.appendChild(el("span",null,"Also un-name this speaker in this meeting "+
+    "(same as \u201cDon\u2019t know\u201d). Uncheck to retire the print and leave the "+
+    "transcript exactly as it is."));
+  z.appendChild(both);
+
+  const say=el("div","say"); say.style.color="var(--alert)";
+  const b=el("button","danger","Retire this voiceprint\u2026");
+  let armed=false, timer=null;
+  function disarm(){ armed=false; b.classList.remove("armed");
+    b.textContent="Retire this voiceprint\u2026"; say.textContent=""; }
+  cb.onchange=()=>{ if(armed) disarm(); };
+  b.onclick=async()=>{
+    if(!armed){                                  // one click arms, the second commits
+      armed=true; b.classList.add("armed");
+      b.textContent="Click again to retire \u2014 affects all meetings";
+      say.textContent = cb.checked
+        ? "Will do both: un-name this speaker here, and retire \u201c"+pr.name+
+          "\u201d everywhere."
+        : "Will retire \u201c"+pr.name+"\u201d everywhere. This meeting keeps the name.";
+      clearTimeout(timer); timer=setTimeout(disarm, 8000);
+      return;
+    }
+    clearTimeout(timer); b.disabled=true; say.textContent="retiring\u2026";
+    const why=reason.value.trim();
+    const steps=[];
+    let bad=false;
+    if(cb.checked){
+      const r1=await post("/api/confirm",{session:sid,key:sp.key,name:"",status:"unknown"});
+      if(r1.ok) steps.push("un-named in this meeting");
+      else { steps.push("NOT un-named here: "+(r1.why||"")); bad=true; }
+    }
+    const r2=await post("/api/forget",{name:pr.name, reason:why});
+    if(r2.ok) steps.push(r2.note||"retired");
+    else { steps.push("NOT retired: "+(r2.why||"")); bad=true; }
+    flash={text:steps.join(" \u00b7 "), bad:bad,
+           reason: (r2.ok && why) ? why : null,
+           undo: r2.ok ? {label:"Restore \u201c"+pr.name+"\u201d", url:"/api/restore",
+                          body:{name:pr.name}} : null};
+    sel=null;
+    await load();
+  };
+  z.appendChild(b); z.appendChild(say);
+  return z;
+}
+
+function restoreZone(sp){
+  const rt=sp.retired_print, z=el("div","zone");
+  zoneHead(z, "Voiceprint retired", true);
+  z.appendChild(el("div","zb", "\u201c"+rt.name+"\u201d was retired"+
+    (rt.retired_at ? " on "+String(rt.retired_at).slice(0,10) : "")+
+    ", so this voice is not matched automatically in any meeting."));
+  if(rt.reason){ const r=el("div","zb"); r.style.fontFamily="var(--m)";
+    r.textContent="reason: "+rt.reason; z.appendChild(r); }
+  const say=el("div","say");
+  const b=el("button","ghost","Put this voiceprint back");
+  b.style.marginTop="10px";
+  b.onclick=async()=>{ b.disabled=true; say.textContent="restoring\u2026";
+    const r=await post("/api/restore",{name:rt.name});
+    flash = r.ok ? {text:r.note||"restored"}
+                 : {text:"not restored: "+(r.why||""), bad:true};
+    await load(); };
+  z.appendChild(b); z.appendChild(say);
+  return z;
+}
+
+// Every retired print, not only the ones this meeting happens to mention — otherwise a
+// retirement made here is invisible the moment the speaker is renamed.
+function drawVoiceprints(){
+  const box=$("#vpbox"); box.innerHTML="";
+  const rows=(D.retired||[]);
+  if(!rows.length) return;
+  const c=el("div","card");
+  const h=el("div","lbl"); h.textContent="Retired voiceprints ("+rows.length+")";
+  c.appendChild(h);
+  c.appendChild(el("div","zb","Not matched in any meeting until they are put back."));
+  rows.forEach(r=>{
+    const row=el("div","vprow");
+    row.appendChild(el("span","nm", r.name));
+    row.appendChild(el("span","ct", String(r.retired_at||"").slice(0,10)));
+    const b=el("button","ghost","Restore"); b.style.marginLeft="auto";
+    b.onclick=async()=>{ b.disabled=true;
+      const x=await post("/api/restore",{name:r.name});
+      flash = x.ok ? {text:x.note||"restored"}
+                   : {text:"not restored: "+(x.why||""), bad:true};
+      await load(); };
+    row.appendChild(b);
+    if(r.reason) row.appendChild(el("div","rw", r.reason));
+    c.appendChild(row);
+  });
+  box.appendChild(c);
+}
+
+function jumpTo(key, idx, play){
+  const els = lineEls[key] || [];
+  if(!els.length) return;
+  const i = ((idx % els.length) + els.length) % els.length;
+  cursor[key] = i;
+  const ln = els[i];
+  ln.scrollIntoView({block:"center", behavior:"smooth"});
+  document.querySelectorAll(".ln.now").forEach(x=>x.classList.remove("now"));
+  ln.classList.add("now");
+  const t=parseFloat(ln.dataset.start);
+  if(!isNaN(t)) playAt(t, ln.dataset.track, play);
+  const c=document.getElementById("cnt-"+key);
+  if(c) c.textContent = (i+1)+" of "+els.length;
+}
+
+function drawTx(){
+  const box=$("#tx"); box.innerHTML="";
+  Object.keys(lineEls).forEach(k=>delete lineEls[k]);
+  const nameOf = k => (D.speakers.find(x=>x.key===k)||{}).name || k;
+  let last=null, grp=null;
+  lineByIndex.length = 0;
+  D.timeline.forEach((e, idx)=>{
+    if(e.key!==last){
+      grp=el("div","grp");
+      grp.appendChild(el("div","who", nameOf(e.key)));
+      box.appendChild(grp); last=e.key;
+    }
+    const ln=el("div","ln"+(sel && e.key!==sel ? " dim":""));
+    ln.dataset.start = e.start;
+    ln.dataset.track = e.track;
+    lineByIndex[idx] = ln;
+    (lineEls[e.key] = lineEls[e.key] || []).push(ln);
+    ln.appendChild(el("span","t", hms(e.start)));
+    ln.appendChild(el("span","x", e.text));
+    if(e.override) ln.appendChild(el("span","ov","→ "+e.override));
+    const re=el("button","re","not them?");
+    re.title="Assign this line to someone else";
+    re.onclick=(ev)=>{ ev.stopPropagation(); openPicker(grp, ln, e); };
+    ln.appendChild(re);
+    const cw=el("button","re crown","👑");
+    cw.title="Crown this the Best Saying of the meeting";
+    cw.onclick=(ev)=>{ ev.stopPropagation(); crownLine(idx, cw); };
+    ln.appendChild(cw);
+    ln.onclick=()=>{ playAt(e.start, e.track);
+      document.querySelectorAll(".ln.now").forEach(x=>x.classList.remove("now"));
+      ln.classList.add("now"); };
+    grp.appendChild(ln);
+  });
+}
+
+function openPicker(grp, ln, e){
+  document.querySelectorAll(".picker").forEach(x=>x.remove());
+  const box=el("div","picker");
+  box.appendChild(el("div","lbl","Who actually said this line?"));
+  const free=el("input"); free.type="text"; free.placeholder="type a name";
+  const chips=el("div","chips");
+  const send=async(name)=>{
+    box.innerHTML="saving…";
+    const r=await api("/api/reassign",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({session:sid,start:e.start,track:e.track,name:name})});
+    if(!r.ok){ box.textContent="failed: "+(r.why||""); return; }
+    await load();
+  };
+  (D.candidates||[]).forEach(n=>{
+    const b=el("button","chip",n); b.dataset.n=n;
+    b.onclick=()=>send(n);
+    chips.appendChild(b);
+  });
+  free.oninput=()=>{ const q=free.value.trim().toLowerCase();
+    Array.prototype.forEach.call(chips.children,b=>{ b.hidden = q && b.dataset.n.toLowerCase().indexOf(q)<0; }); };
+  free.onkeydown=(ev)=>{ if(ev.key==="Enter" && free.value.trim()) send(free.value.trim()); };
+  box.appendChild(free); box.appendChild(chips);
+  const acts=el("div","acts");
+  if(e.override){
+    const clr=el("button","ghost","Clear override"); clr.onclick=()=>send("");
+    acts.appendChild(clr);
+  }
+  const cancel=el("button","ghost","Cancel"); cancel.onclick=()=>box.remove();
+  acts.appendChild(cancel);
+  box.appendChild(acts);
+  ln.after(box);
+  free.focus();
+}
+
+// --------------------------------------------- does the contact list know this name?
+//
+// Enrolling a voice and having a contact row were two unconnected facts until now:
+// enrolling "Alex Example" told the contacts DB nothing, and nothing said so. This asks the
+// question straight after a successful enrolment — and only asks. Three different things
+// go wrong with a name typed mid-call and each needs a different fix:
+//
+//   a typo of one's own      rename the voiceprint. Aliasing a typo entrenches it.
+//   the contact is wrong    fix the contact, alias the old spelling.
+//   nickname vs legal name  alias. Both spellings are genuinely that person.
+//
+// Only the user knows which one applies, so every path below ends in them clicking. Nothing
+// is created, renamed or aliased on the way in.
+async function askContacts(name){
+  name = (name||"").trim();
+  if(!name) return;
+  link = {name:name, loading:true, note:"", detail:null, pending:null};
+  drawLink();
+  await resolveLink(name);
+}
+
+async function resolveLink(name, keep){
+  const r = await api("/api/contacts/resolve?name="+encodeURIComponent(name)
+                      +"&session="+encodeURIComponent(sid));
+  link = {name:name, r:r,
+          note: keep ? keep.note : "", detail: keep ? keep.detail : null,
+          pending: keep ? keep.pending : null};
+  drawLink();
+}
+
+function who(c){
+  const bits=[];
+  if(c.role) bits.push(String(c.role));
+  if(c.company) bits.push(String(c.company));
+  if(c.customer) bits.push(String(c.customer));
+  return bits.join("  ·  ");
+}
+
+function drawLink(){
+  const box=$("#linkbox"); box.innerHTML="";
+  if(!link) return;
+  const r=link.r, exact=(r&&r.exact)||[], close=(r&&r.close)||[];
+  const c=el("div","link"+(link.loading?"":(exact.length?" good":" ask")));
+  const h=el("div","lh");
+  h.appendChild(el("span","scope","contacts"));
+  h.appendChild(el("span","lt","Contact check"));
+  c.appendChild(h);
+
+  if(link.note) c.appendChild(el("div","lb",link.note));
+  if(link.detail){ const pre=el("pre","detail",link.detail); c.appendChild(pre); }
+
+  if(link.loading){
+    c.appendChild(el("div","lb","checking the contact list for “"+link.name+"”…"));
+    box.appendChild(c); return;
+  }
+  if(r && r.error){
+    c.appendChild(el("div","lb",r.error));
+  } else if(exact.length === 1){
+    const x=exact[0];
+    const alias = String(x.name||"").trim().toLowerCase() !== link.name.toLowerCase();
+    const b=el("div","lb");
+    b.appendChild(document.createTextNode("✓ "));
+    b.appendChild(el("b",null,String(x.name||"")));
+    b.appendChild(document.createTextNode(alias
+      ? " already answers to “"+link.name+"” — it is on their list of spellings. Nothing to do."
+      : " is already in contacts. Nothing to do."));
+    c.appendChild(b);
+    if(who(x)) c.appendChild(el("div","cs",who(x)));
+    c.appendChild(alsoClose(close));
+  } else if(exact.length > 1){
+    c.appendChild(el("div","lb",exact.length+" contacts answer to “"+link.name
+      +"” — usually one person carried once per account. Nothing to do here."));
+    exact.forEach(x=>{ const d=el("div","cand");
+      d.appendChild(el("div","cn",String(x.name||"")));
+      if(who(x)) d.appendChild(el("div","cr",who(x)));
+      c.appendChild(d); });
+    c.appendChild(alsoClose(close));
+  } else if(close.length){
+    const b=el("div","lb");
+    b.appendChild(document.createTextNode("No contact called “"+link.name+"”. "));
+    b.appendChild(document.createTextNode(close.length===1
+      ? "Did you mean…" : "These "+close.length+" are close — none of them is assumed:"));
+    c.appendChild(b);
+    close.forEach(hit=>c.appendChild(candidate(hit)));
+    const acts=el("div","acts");
+    acts.appendChild(makeBtn("ghost","Different person — add “"+link.name+"” as a new contact",
+      ()=>doCreate()));
+    c.appendChild(acts);
+  } else {
+    c.appendChild(el("div","lb","No contact called “"+link.name
+      +"”, and nothing close enough to suggest. "
+      +(r&&r.checked?("Checked "+r.checked+" contacts."):"")));
+    const acts=el("div","acts");
+    acts.appendChild(makeBtn("go","Add “"+link.name+"” to contacts",()=>doCreate()));
+    c.appendChild(acts);
+    c.appendChild(el("div","cs","It lands as “needs confirmation” with the session it "
+      +"came from recorded as its source — you confirm it on the contacts page."));
+  }
+
+  if(link.pending) c.appendChild(pendingBlock());
+
+  const foot=el("div","acts");
+  const a=document.createElement("a");
+  a.className="back"; a.href="/contacts"; a.target="_blank"; a.textContent="open contacts ↗";
+  a.style.alignSelf="center";
+  const x=el("button","ghost","Dismiss"); x.onclick=()=>{ link=null; drawLink(); };
+  foot.appendChild(x); foot.appendChild(a);
+  c.appendChild(foot);
+  box.appendChild(c);
+}
+
+// A name can match one row exactly and still sit next to another that is almost
+// certainly the same person under a different spelling — "Samuel Sample" beside "Sam
+// Sample". Said once, quietly, with no button: merging is the contacts page’s job, and
+// whether they ARE one person is the user’s call.
+function alsoClose(close){
+  const d=el("div","cs");
+  if(!close || !close.length){ d.style.display="none"; return d; }
+  d.textContent = "Also close: "
+    + close.map(h=>String(h.contact.name||"")+" ("+Number(h.score).toFixed(2)+")").join(", ")
+    + " — if that is the same person, these are two rows and /contacts can merge them.";
+  d.style.color = "var(--warn)";
+  return d;
+}
+
+function makeBtn(cls,label,fn){
+  const b=el("button",cls,label);
+  b.onclick=async()=>{ b.disabled=true; await fn(); };
+  return b;
+}
+
+// One candidate, and the three things it could mean. The page never picks one: the
+// difference between a typo, a wrong contact and a nickname is not visible from here.
+function candidate(hit){
+  const c=hit.contact, d=el("div","cand");
+  d.appendChild(el("div","cn",String(c.name||"")));
+  if(who(c)) d.appendChild(el("div","cr",who(c)));
+  d.appendChild(el("div","cs",Number(hit.score).toFixed(2)+" — "+String(hit.why||"")
+    +(hit.matched && hit.matched !== String(c.name||"").toLowerCase()
+      ? "  ·  matched on “"+hit.matched+"”" : "")));
+  const acts=el("div","acts");
+  acts.appendChild(makeBtn("go","Yes — I misspelled it",()=>doRename(String(c.name||""))));
+  acts.appendChild(makeBtn("ghost","Both names are right",()=>doAlias(c)));
+  d.appendChild(acts);
+  d.appendChild(el("div","cs","“I misspelled it” re-spells the VOICEPRINT to "
+    +"“"+String(c.name||"")+"” — the vector, its samples and its history all move "
+    +"with it. “Both names are right” leaves the voiceprint alone and adds "
+    +"“"+link.name+"” to that contact’s spellings."));
+  return d;
+}
+
+async function doRename(newName){
+  const oldName = link.name;
+  const r = await post("/api/voiceprints/rename",{old:oldName,new:newName});
+  if(!r.ok){
+    link.note = "Not renamed: "+(r.why||"");
+    link.detail = (r.detail||[]).join("\n") || null;
+    drawLink(); return;
+  }
+  const keep = {note:"Voiceprint re-spelled “"+oldName+"” → “"+newName
+                     +"”. The vector and its sample count moved with it.",
+                detail:(r.detail||[]).join("\n")||null,
+                pending:(r.pending_sessions||[]).length
+                        ? {old:oldName, new:newName, list:r.pending_sessions} : null};
+  await resolveLink(newName, keep);
+  await load();          // the rail still shows the old spelling until it is redrawn
+}
+
+// Renaming the print moves a label. Rewriting sessions rewrites transcripts the user quotes
+// to customers, so mt shows that blast radius before touching it and so does this.
+function pendingBlock(){
+  const p=link.pending, z=el("div","zone");
+  const h=el("div","zhead");
+  h.appendChild(el("span","scope glob","all meetings"));
+  h.appendChild(el("span","zt",p.list.length+" transcript"+(p.list.length===1?"":"s")
+    +" still say “"+p.old+"”"));
+  z.appendChild(h);
+  z.appendChild(el("div","zb","The voiceprint is renamed. These sessions were not touched "
+    +"— rewriting them re-renders transcript.md, which is the file you quote."));
+  p.list.forEach(x=>z.appendChild(el("div","cs",x)));
+  const acts=el("div","acts");
+  acts.appendChild(makeBtn("danger","Rewrite and re-render them too",async()=>{
+    const r=await post("/api/voiceprints/rename",{old:p.old,new:p.new,sessions:true});
+    link.pending=null;
+    link.note = r.ok ? ("Renamed, and "+p.list.length+" session(s) rewritten.")
+                     : ("Sessions not rewritten: "+(r.why||""));
+    link.detail=(r.detail||[]).join("\n")||null;
+    drawLink();
+    if(r.ok) await load();
+  }));
+  acts.appendChild(makeBtn("ghost","Leave the transcripts alone",()=>{
+    link.pending=null; drawLink();
+  }));
+  z.appendChild(acts);
+  return z;
+}
+
+async function doAlias(c){
+  const r = await post("/api/contacts/alias",{id:c.id,alias:link.name});
+  if(!r.ok){ link.note="Not saved: "+(r.why||""); drawLink(); return; }
+  const nm = (r.contact&&r.contact.name)||c.name;
+  await resolveLink(link.name, {note: r.already
+    ? ("“"+link.name+"” was already one of "+nm+"’s spellings.")
+    : ("“"+link.name+"” added to "+nm+"’s spellings — the next lookup "
+       +"will match it."), detail:null, pending:link.pending});
+}
+
+async function doCreate(){
+  const r = await post("/api/contacts/from-enrollment",{name:link.name,session:sid});
+  if(!r.ok){ link.note="Not created: "+(r.why||""); drawLink(); return; }
+  const c=r.contact||{};
+  await resolveLink(link.name, {note:"Added "+String(c.name||link.name)
+    +" to contacts as “needs confirmation”, sourced to this session. "
+    +"Confirm them on the contacts page when you have checked the spelling.",
+    detail:null, pending:link.pending});
+}
+
+function drawOverrides(){
+  const box=$("#ovbox"); box.innerHTML="";
+  const counts={}, secs={};
+  D.timeline.forEach(e=>{ if(e.override){
+    counts[e.override]=(counts[e.override]||0)+1;
+    secs[e.override]=(secs[e.override]||0)+(e.end-e.start); }});
+  const names=Object.keys(counts);
+  if(!names.length) return;
+  const c=el("div","card");
+  c.appendChild(el("div","lbl","Lines you reassigned"));
+  c.appendChild(el("div","zb","Enrolling checks that the selected lines agree with each "+
+    "other first, and refuses if they do not \u2014 the score comes back below."));
+  names.forEach(n=>{
+    const r=el("div","ovrow");
+    r.appendChild(el("span","nm", n));
+    r.appendChild(el("span","ct", counts[n]+" lines · "+Math.round(secs[n])+"s"));
+    const b=el("button","ghost","Enroll from these");
+    b.style.marginLeft="auto";
+    const say=el("div","say","");
+    b.onclick=async()=>{
+      b.disabled=true; say.textContent="building voiceprint…";
+      const r2=await api("/api/enroll-lines",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({session:sid,name:n})});
+      if(r2.ok){
+        say.textContent = `enrolled ${r2.name} from ${r2.seconds}s \u2014 `+
+                          verdict(r2.selfsim);
+        say.style.color = tone(r2.selfsim);
+        await askContacts(r2.name);        // same question the cluster path asks
+      } else {
+        say.textContent = "not enrolled: "+(r2.why||"");
+        say.style.color = "var(--alert)";
+      }
+      b.disabled=false;
+    };
+    r.appendChild(b);
+    c.appendChild(r); c.appendChild(say);
+  });
+  box.appendChild(c);
+}
+
+function drawHandoff(){
+  const box=$("#hoffbox"); box.innerHTML="";
+  const open = D.speakers.filter(s=>!s.is_mic && !s.verified && !s.mixed).length;
+  const c=el("div","card");
+  c.appendChild(el("div","lbl","Hand off to your assistant"));
+  c.appendChild(el("div",null, open
+    ? open+" voice"+(open===1?"":"s")+" still unreviewed. You can hand off anyway."
+    : "All voices settled."));
+  const say=el("div","say", D.handed_off ? "already handed off" : "");
+  const b=el("button","go","Mark reviewed and hand off");
+  b.style.marginTop="10px";
+  b.onclick=async()=>{
+    b.disabled=true;
+    const r=await api("/api/handoff",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({session:sid})});
+    if(r.ok){
+      say.textContent="ready — paste this to your assistant:";
+      const p=el("div","card"); p.style.marginTop="8px";
+      p.style.fontFamily="var(--m)"; p.style.fontSize="12px"; p.textContent=r.line;
+      const cp=el("button","ghost","Copy"); cp.style.marginTop="8px";
+      cp.onclick=()=>navigator.clipboard && navigator.clipboard.writeText(r.line)
+        .then(()=>cp.textContent="Copied");
+      c.appendChild(p); c.appendChild(cp);
+    } else { say.textContent="failed: "+(r.why||""); b.disabled=false; }
+  };
+  c.appendChild(b); c.appendChild(say);
+  box.appendChild(c);
+}
+
+load();
+</script>
+</body>
+</html>

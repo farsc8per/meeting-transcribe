@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — gantt</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="gnt">
+<!-- R4.4 — the Gantt, read-only, in its own window (opened from /tracking with Gantt ↗).
+     Hand-built SVG, no library. All behaviour lives in gantt.js; colours are the --g-*
+     variables in app.css so they can be refined without touching code. -->
+<div class="gtop">
+  <div class="gtitle"><h1>mt <span>· gantt</span></h1><span id="gname"></span></div>
+  <div class="gctl">
+    <select id="gscope" title="Project or account"></select>
+    <div class="seg" id="gzoom">
+      <button data-z="day">Day</button><button data-z="week">Week</button><button data-z="month">Month</button>
+    </div>
+    <label class="gby">Colour by
+      <select id="gby">
+        <option value="status">Status</option>
+        <option value="cust">Account</option>
+        <option value="who">Who</option>
+      </select></label>
+    <label><input type="checkbox" id="ghide" checked> Hide done</label>
+    <button id="gtoday" class="tap" title="Scroll to today">Today</button>
+    <button id="greload" class="tap" title="Fetch again">Refresh</button>
+    <span class="gexp" title="This view, light theme, 1920×1080. PNG for Google Slides (it does not take SVG); SVG for PowerPoint / Keynote.">Slide:
+      <button id="gpng" class="tap">PNG</button><button id="gsvg" class="tap">SVG</button></span>
+  </div>
+  <div class="glegend" id="glegend"></div>
+  <div class="gnote" id="gnote" hidden></div>
+</div>
+<div class="gscroll" id="gscroll"><div class="empty">loading…</div></div>
+<div class="gtip" id="gtip" hidden></div>
+<div class="gdragtag" id="gdragtag" hidden></div>
+<div class="gtray" id="gtray" hidden></div>
+<script src="/static/live.js"></script>
+<script src="/static/gantt.js"></script>
+</body>
+</html>

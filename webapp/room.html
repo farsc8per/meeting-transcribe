@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — room</title>
+<style>
+  :root{
+    --ground:#F3F6F7; --surface:#FFFFFF; --surface-2:#E9EFF1; --ink:#151B20; --ink-2:#4C5A63;
+    --ink-3:#75838C; --line:#D8E1E5; --line-2:#BFCBD1; --accent:#0E6C79; --ok:#166B4E;
+    --cue0:#2F6DB5; --cue1:#2E8A62; --cue2:#C27C12; --cue3:#B8432B; --cue-none:#BFCBD1;
+    --f:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    --m:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --ground:#0E1316; --surface:#161D21; --surface-2:#1E272C; --ink:#E6EDF0; --ink-2:#A5B3BB;
+    --ink-3:#78868E; --line:#283238; --line-2:#374349; --accent:#4EC2CE; --ok:#5BC59A;
+    --cue0:#6EA8E8; --cue1:#5BC59A; --cue2:#E3A64F; --cue3:#E8735A; --cue-none:#374349;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f);font-size:14px;
+       line-height:1.45;-webkit-font-smoothing:antialiased}
+  .wrap{padding:12px 14px 30px;max-width:1800px;margin:0 auto}
+  /* Cards flow into as many columns as the window fits (one in the default pop-out) and
+     re-place themselves on resize. align-items:start keeps a short card from stretching
+     to match a tall neighbour with the name picker open. */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;
+        margin-top:10px;align-items:start}
+  .grid .card{margin-top:0}
+  .hd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .hd h1{font-size:15px;margin:0}
+  .hd .st{font-family:var(--m);font-size:11px;color:var(--ink-3)}
+  .hd .st.live{color:var(--ok)}
+  .lag{font-size:11.5px;color:var(--ink-3);margin-top:3px}
+  .key{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--ink-2);margin:8px 0 2px}
+  .key span{display:inline-flex;align-items:center;gap:4px}
+  .key i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .msg{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:12px 13px;
+       margin-top:12px;color:var(--ink-2);font-size:13px}
+  .msg a{color:var(--accent)}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+        padding:10px 12px;margin-top:10px}
+  .card.speaking{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .who{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+  .who b{font-size:14.5px}
+  .tag{font-family:var(--m);font-size:10.5px;color:var(--ink-3);border:1px solid var(--line);
+       border-radius:5px;padding:0 5px}
+  .talk{font-family:var(--m);font-size:10.5px;color:var(--accent)}
+  .g{display:grid;grid-template-columns:58px 92px 1fr;align-items:center;gap:8px;margin-top:7px}
+  .g .lab{font-family:var(--m);font-size:10.5px;color:var(--ink-3)}
+  .seg{display:flex;gap:2px}
+  .seg i{flex:1;height:12px;border-radius:2px;opacity:.18}
+  .seg i.on{opacity:1}
+  .word{font-size:13px;font-weight:600;white-space:nowrap}
+  .word.none{color:var(--ink-3);font-weight:400}
+  .word small{font-weight:400;color:var(--ink-3);font-family:var(--m);font-size:10.5px;margin-left:4px}
+  svg.spark{width:100%;height:22px;display:block;margin-top:3px}
+  svg.spark polyline{fill:none;stroke-width:1.6;vector-effect:non-scaling-stroke}
+  svg.spark line{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+  .why{font-size:11.5px;color:var(--ink-3);margin-top:5px}
+  .base{font-family:var(--m);font-size:10.5px;color:var(--ink-3);margin-top:6px}
+  .foot{font-size:11px;color:var(--ink-3);margin-top:14px}
+  .aw{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-top:10px}
+  .aw .ah{display:flex;align-items:baseline;gap:8px;font-size:11.5px;color:var(--ink-3)}
+  .aw .ah button{margin-left:auto;font-size:11px;padding:1px 7px;border:1px solid var(--line);
+                 border-radius:5px;background:none;color:var(--ink-3);cursor:pointer}
+  .aw .a{font-size:12.5px;margin-top:4px;line-height:1.35}
+  .aw .a b{font-weight:600}
+  .aw .a span.v{color:var(--ink-3)}
+  .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .acts button,.pick button,.named button{font-size:11.5px;padding:2px 8px;border:1px solid var(--line);
+       border-radius:6px;background:var(--surface-2);color:var(--ink);cursor:pointer}
+  .acts button:hover,.pick button:hover{border-color:var(--accent)}
+  .pick{margin-top:7px;padding:8px;border:1px solid var(--accent);border-radius:8px}
+  .pick .plab{font-size:11.5px;color:var(--ink-2);margin-bottom:5px}
+  .pick .pquote{font-size:12px;color:var(--ink-2);font-style:italic;margin-bottom:4px}
+  .said{margin-top:6px;font-size:12px;color:var(--ink-2);font-style:italic;line-height:1.35}
+  .said div{margin-top:2px;overflow-wrap:anywhere}
+  .pick .prow{display:flex;gap:6px}
+  .pick input{flex:1;min-width:0;font:inherit;font-size:13px;padding:4px 7px;border:1px solid var(--line);
+       border-radius:6px;background:var(--surface);color:var(--ink)}
+  .pick .chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+  .named{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-top:10px}
+  .named .ah{font-size:11.5px;color:var(--ink-3)}
+  .named .nm{font-size:12.5px;margin-top:3px}
+  .named button{margin-top:6px}
+  .gbtn{font-size:11px;padding:1px 7px;border:1px solid var(--line);border-radius:5px;
+        background:none;color:var(--ink-3);cursor:pointer;margin-top:6px}
+  dl.guide{margin:8px 0 0;padding:9px 11px;background:var(--surface);border:1px solid var(--line);
+           border-radius:9px;font-size:12px}
+  dl.guide dt{font-weight:600;margin-top:6px} dl.guide dt:first-child{margin-top:0}
+  dl.guide dd{margin:1px 0 0;color:var(--ink-2)}
+  .awoff{font-size:11px;color:var(--ink-3);margin-top:8px}
+  .awoff button{font-size:11px;padding:1px 7px;border:1px solid var(--line);border-radius:5px;
+                background:none;color:var(--ink-3);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd"><h1>Room</h1><span class="st" id="st">connecting…</span></div>
+  <div class="lag">Each speaker against their own normal. Readings trail the talk by ~5–30 s.</div>
+  <div class="key" id="key"></div>
+  <div id="box"></div>
+  <div class="foot">Delivery, not feelings and not honesty. Experimental — see REFERENCE.md.</div>
+</div>
+<script>
+// Every name here is file content (voiceprints, the live log): textContent throughout,
+// SVG built node by node. Nothing on this page writes anything.
+const $ = s => document.querySelector(s);
+const SVGNS = "http://www.w3.org/2000/svg";
+const sid = new URLSearchParams(location.search).get("session") || "";
+const BAND_KEY = ["below their normal","their normal","elevated","well above"];
+let timer = null;
+
+function el(t,c,x){const e=document.createElement(t); if(c)e.className=c; if(x!=null)e.textContent=x; return e;}
+function hms(s){s=Math.max(0,Math.round(s));const h=(s/3600)|0,m=((s%3600)/60)|0,x=s%60;
+  return h?`${h}:${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}`:`${m}:${String(x).padStart(2,"0")}`;}
+
+function drawKey(){
+  const k=$("#key"); k.innerHTML="";
+  BAND_KEY.forEach((t,i)=>{ const s=el("span"); const sw=el("i"); sw.style.background="var(--cue"+i+")";
+    s.appendChild(sw); s.appendChild(document.createTextNode(t)); k.appendChild(s); });
+  const s=el("span"); const sw=el("i"); sw.style.background="var(--cue-none)";
+  s.appendChild(sw); s.appendChild(document.createTextNode("not enough yet")); k.appendChild(s);
+}
+
+async function tick(){
+  let R;
+  try{ R = await fetch("/api/cues/live?session="+encodeURIComponent(sid)).then(r=>r.json()); }
+  catch(e){ R = {ok:false, why:"mt web is not answering"}; }
+  lastR = R;
+  if(!picking) draw(R);    // never redraw under an open name picker
+  clearTimeout(timer);
+  timer = setTimeout(tick, R && R.recording ? 2000 : 15000);
+}
+
+function draw(R){
+  const box=$("#box"); box.innerHTML="";
+  const st=$("#st");
+  st.className = "st" + (R && R.recording ? " live" : "");
+  st.textContent = R && R.recording ? "● live  " + (R.elapsedText||"") + "  ·  " + (R.session||"")
+                 : (R && R.session ? "ended  ·  " + R.session : "not recording");
+  if(!R || !R.ok){ box.appendChild(el("div","msg", (R && R.why) || "nothing to show")); return; }
+  // Field guide: text from the server (cues.ROOM_GUIDE + the shared gauge entries).
+  if(R.guide && R.guide.length){
+    let open = false; try{ open = localStorage.getItem("mt.guide.room") === "1"; }catch(e){}
+    const g=el("button","gbtn", open ? "Hide field guide" : "Field guide");
+    g.onclick=()=>{ try{ localStorage.setItem("mt.guide.room", open ? "0" : "1"); }catch(e){} draw(R); };
+    box.appendChild(g);
+    if(open){
+      const dl=el("dl","guide");
+      R.guide.forEach(([t,x])=>{ dl.appendChild(el("dt",null,t)); dl.appendChild(el("dd",null,x)); });
+      box.appendChild(dl);
+    }
+  }
+  if(!R.requested && !R.rows){
+    box.appendChild(el("div","msg", "Vocal cues are off for this recording. Tick “Vocal cues” "
+      + "before starting next time, or analyze this meeting from its review page after the call."));
+    return;
+  }
+  if(!R.recording){
+    const m=el("div","msg");
+    m.appendChild(document.createTextNode(R.analyzed
+      ? "The call has ended and has been measured properly. "
+      : "The call has ended. The full pass measures it properly once transcription finishes. "));
+    const a=el("a",null,"Open the review page"); a.href="/review?session="+encodeURIComponent(R.session);
+    a.target="_blank"; m.appendChild(a);
+    box.appendChild(m);
+  }
+  if(!R.people.length){
+    if(R.recording) box.appendChild(el("div","msg","Waiting for the first measured speech — "
+      + "a card appears about half a minute after someone talks."));
+    return;
+  }
+  const aw = awardsBox(R);
+  if(aw) box.appendChild(aw);
+  // An hour-long training separated into 16 cards. Keep the room readable: whoever spoke
+  // in the last 5 minutes (talkers first), you, and anyone you named stay up; the rest
+  // fold under "Earlier voices", remembered open/closed in this browser.
+  const now = R.now || 0, RECENT = 300;
+  const keep = p => !R.recording || p.kind === "you" || p.kind === "named by you" || (now - p.last) <= RECENT;
+  // Stable positions: in a grid, re-sorting by "who's talking" every 2 s made cards jump
+  // across columns. Order of first appearance, you last; the speaking highlight does the
+  // pointing instead.
+  const up = R.people.filter(keep).sort((a, b) =>
+    (a.kind === "you") - (b.kind === "you") || (a.first - b.first));
+  const folded = R.people.filter(p => !keep(p));
+  const grid = el("div","grid");
+  up.forEach(p => grid.appendChild(card(p, R)));
+  box.appendChild(grid);
+  if(folded.length){
+    let open = false; try{ open = localStorage.getItem("mt.room.earlier") === "1"; }catch(e){}
+    const t = el("button","gbtn", (open ? "▾ " : "▸ ") + "Earlier voices (" + folded.length + ")");
+    t.onclick = () => { try{ localStorage.setItem("mt.room.earlier", open ? "0" : "1"); }catch(e){} draw(R); };
+    box.appendChild(t);
+    if(open){
+      const g2 = el("div","grid");
+      folded.sort((a, b) => a.first - b.first).forEach(p => g2.appendChild(card(p, R)));
+      box.appendChild(g2);
+    }
+  }
+  const nb = namedBox(R);
+  if(nb) box.appendChild(nb);
+}
+
+// Awards so far — the same one-click hide as the review page (shared setting), because
+// this panel is the thing most likely to be on screen when you start sharing it.
+function awardsHidden(R){
+  try{ const v = localStorage.getItem("mt.hideAwards"); if(v !== null) return v === "1"; }catch(e){}
+  return !(R.awards && R.awards.fun_labels);
+}
+function setHidden(h, R){ try{ localStorage.setItem("mt.hideAwards", h ? "1" : "0"); }catch(e){} draw(R); }
+
+function awardsBox(R){
+  const list = (R.awards && R.awards.awards) || [];
+  if(awardsHidden(R)){
+    const o=el("div","awoff","Awards hidden. ");
+    const b=el("button",null,"show"); b.onclick=()=>setHidden(false, R); o.appendChild(b);
+    return o;
+  }
+  if(!list.length) return null;
+  const w=el("div","aw");
+  const h=el("div","ah"); h.appendChild(el("span",null,"Awards so far (rough — settled after the call)"));
+  const b=el("button",null,"hide"); b.title="Hide awards — for screen-sharing"; b.onclick=()=>setHidden(true, R);
+  h.appendChild(b); w.appendChild(h);
+  list.forEach(a=>{
+    const r=el("div","a");
+    r.appendChild(document.createTextNode(a.emoji + " " + a.title + " · "));
+    r.appendChild(el("b",null,a.who));
+    r.appendChild(el("span","v"," — " + a.value));
+    w.appendChild(r);
+  });
+  return w;
+}
+
+function card(p, R){
+  const c=el("div","card" + (p.speaking && R.recording ? " speaking" : ""));
+  const w=el("div","who");
+  w.appendChild(el("b",null, p.kind==="blended" ? "Them" : p.name));
+  if(p.kind==="you") w.appendChild(el("span","tag","you · mic"));
+  else if(p.kind==="voice match") w.appendChild(el("span","tag","voice match " + (p.match ? p.match.toFixed(2) : "")));
+  else if(p.kind==="named by you") w.appendChild(el("span","tag","named by you"));
+  else if(p.kind==="near miss") w.appendChild(el("span","tag","near miss " + (p.match ? p.match.toFixed(2) : "") + " — is it?"));
+  else if(p.kind==="speaker") w.appendChild(el("span","tag","unnamed voice" + (p.guess ? " · maybe " + p.guess + "?" : "")));
+  else w.appendChild(el("span","tag","far end, blended"));
+  if(p.speaking && R.recording) w.appendChild(el("span","talk","● speaking"));
+  c.appendChild(w);
+  // What they said last: naming someone from what they're talking about beats waiting
+  // for their name to come up. Not on your own card — you know what you said.
+  if(p.kind !== "you" && p.recent && p.recent.length){
+    const said = el("div","said");
+    p.recent.slice(-2).forEach(r => {
+      const t = r.text.length > 110 ? r.text.slice(0, 107) + "…" : r.text;
+      said.appendChild(el("div",null, hms(r.t) + "  “" + t + "”"));
+    });
+    c.appendChild(said);
+  }
+  const acts = nameActions(p, R);
+  if(acts) c.appendChild(acts);
+
+  const now=p.now||{};
+  [["Energy","E","eb",R.words.energy],["Friction","F","fb",R.words.friction]].forEach(([lab,v,b,words])=>{
+    const g=el("div","g");
+    g.appendChild(el("span","lab",lab));
+    const seg=el("div","seg");
+    for(let i=0;i<4;i++){ const x=el("i", now[b]===i ? "on" : ""); x.style.background="var(--cue"+i+")"; seg.appendChild(x); }
+    g.appendChild(seg);
+    const wd = now[b]==null ? el("span","word none","not enough yet") : el("span","word", words[now[b]]);
+    if(now[b]!=null){ wd.style.color="var(--cue"+now[b]+")";
+      wd.appendChild(el("small",null,(now[v]>=0?"+":"")+now[v])); }
+    g.appendChild(wd);
+    c.appendChild(g);
+    c.appendChild(spark(p.trend, v==="E"?1:2, R.bands, R.now));
+  });
+
+  const d=p.detail||{}, f=[];
+  if(d.dst!=null) f.push("pitch " + (d.dst>=0?"+":"") + d.dst + " st");
+  if(d.drate!=null) f.push("pace " + (d.drate>=0?"+":"") + d.drate + "%");
+  if(d.lat!=null) f.push(d.lat<0 ? "came in over someone" : "gap " + d.lat + "s");
+  if(d.interrupt) f.push("started over someone");
+  if(f.length) c.appendChild(el("div","why", "latest: " + f.join("  ·  ")));
+
+  const b=p.baseline;
+  const basis = p.kind==="blended" ? "vs this call (several far-end voices mixed)"
+              : b.kind==="history" ? "vs their normal · " + b.sessions + " other meeting" + (b.sessions===1?"":"s")
+              : b.kind==="call" ? "vs this call so far"
+              : "learning this voice";
+  c.appendChild(el("div","base", "●".repeat(p.confidence) + "○".repeat(3-p.confidence)
+    + "  " + basis + "  ·  " + p.lines + " segment" + (p.lines===1?"":"s")
+    + "  ·  last " + hms(p.last)));
+  return c;
+}
+
+// ── live naming ─────────────────────────────────────────────────────────────
+// Correct a card and the voice behind it is learned for the rest of THIS call; after the
+// full pass the review page opens with those names filled in. Nothing is enrolled and the
+// people map is never touched. While the picker is open the 2 s refresh pauses, so a
+// redraw can't eat what you're typing.
+let picking = null;      // {key, kind, from, text}
+let lastR = null;
+
+function cardKey(p){ return p.kind + "|" + p.name; }
+
+function nameActions(p, R){
+  if(!R.recording) return null;    // after the call, name voices on the review page
+  const k = cardKey(p);
+  if(picking && picking.key === k) return picker(p, R);
+  const a = el("div","acts");
+  const btn = (label, title, fn) => { const b=el("button",null,label); b.title=title; b.onclick=fn; a.appendChild(b); };
+  if(p.kind === "speaker"){
+    if(p.guess) btn("✓ It's " + p.guess, "The closest voiceprint — yes, that's them",
+        () => sendName({kind:"voice", from:p.name, to:p.guess}));
+    btn("✎ Name", "Who is " + p.name + "? Names everything this voice has said and learns it",
+        () => openPicker(k, "voice", p.name));
+  } else if(p.kind === "near miss"){
+    btn("✓ It's " + p.guess, "Yes, that's them — learn this voice for the rest of the call",
+        () => sendName({kind:"maybe", from:p.guess, to:p.guess}));
+    btn("✎ Someone else", "Pick who it really is",
+        () => openPicker(k, "maybe", p.guess));
+  } else if(p.kind === "voice match"){
+    btn("✎ Not them", "The voiceprint guessed wrong — pick who it really is",
+        () => openPicker(k, "match", p.name));
+  } else if(p.kind === "blended"){
+    btn("✎ Name this voice", "Names the far end's last minute of speech and learns that voice",
+        () => openPicker(k, "them", null));
+  } else if(p.kind === "named by you"){
+    // A live name is never a done deal: change it here, and the review page asks again.
+    btn("✎ Rename", "Wrong person? Everything named " + p.name + " this call moves to the new name",
+        () => openPicker(k, "rename", p.name));
+    btn("✕ Unname", "Take the name off — the voice goes back to its Speaker number",
+        () => { if(confirm("Take the name " + p.name + " off this voice?")) sendName({kind:"rename", from:p.name, to:null}); });
+  } else return null;
+  return a;
+}
+
+function openPicker(key, kind, from){ picking = {key, kind, from, text:""}; draw(lastR); }
+
+function picker(p, R){
+  const w = el("div","pick");
+  w.appendChild(el("div","plab", picking.kind === "them"
+    ? "Who is talking? (names the last minute of far-end speech)"
+    : picking.kind === "rename" ? "Rename " + picking.from + " to…" : "Who is it really?"));
+  // The lines again, right where you're deciding.
+  (p.recent || []).forEach(r => w.appendChild(el("div","pquote", hms(r.t) + "  “" + r.text + "”")));
+  const inp = el("input"); inp.type = "text"; inp.placeholder = "type a name";
+  inp.value = picking.text;
+  const list = el("div","chips");
+  const fill = () => {
+    list.innerHTML = "";
+    const q = inp.value.trim().toLowerCase();
+    (R.candidates || []).filter(n => !q || n.toLowerCase().includes(q)).slice(0, 8).forEach(n => {
+      const b = el("button","chip",n); b.onclick = () => sendName({kind:picking.kind, from:picking.from, to:n});
+      list.appendChild(b);
+    });
+  };
+  inp.oninput = () => { picking.text = inp.value; fill(); };
+  inp.onkeydown = ev => {
+    if(ev.key === "Enter" && inp.value.trim()) sendName({kind:picking.kind, from:picking.from, to:inp.value.trim()});
+    if(ev.key === "Escape"){ picking = null; draw(lastR); }
+  };
+  fill();
+  const row = el("div","prow"); row.appendChild(inp);
+  const cancel = el("button",null,"Cancel"); cancel.onclick = () => { picking = null; draw(lastR); };
+  row.appendChild(cancel);
+  w.appendChild(row); w.appendChild(list);
+  setTimeout(() => { try{ inp.focus(); }catch(e){} }, 0);
+  return w;
+}
+
+async function sendName(body){
+  let r;
+  const url = body.kind === "rename" ? "/api/cues/live/rename" : "/api/cues/live/name";
+  try{
+    r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(Object.assign({session: (lastR && lastR.session) || sid}, body))}).then(x=>x.json());
+  }catch(e){ r = {ok:false, why:"mt web is not answering"}; }
+  picking = null;
+  if(!r.ok) alert(r.why || "that did not work");
+  else if(r.note) alert(r.note);
+  tick();
+}
+
+async function undoName(){
+  try{
+    await fetch("/api/cues/live/undo", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({session: (lastR && lastR.session) || sid})});
+  }catch(e){}
+  tick();
+}
+
+function namedBox(R){
+  if(!R.named || !R.named.length) return null;
+  const w = el("div","named");
+  w.appendChild(el("div","ah","Named this call — the review page opens with these filled in"));
+  R.named.forEach(n => w.appendChild(el("div","nm", n.what + " → " + n.to
+    + (n.learned ? "  · voice learned (" + n.secs + " s)" : "  · too little audio to learn the voice yet"))));
+  if(R.recording){ const u = el("button",null,"Undo last"); u.onclick = undoName; w.appendChild(u); }
+  return w;
+}
+
+// Last ~40 readings as a line; the faint rules are the elevated and well-above cuts.
+function spark(trend, idx, bands, now){
+  const sv=document.createElementNS(SVGNS,"svg");
+  sv.setAttribute("class","spark"); sv.setAttribute("viewBox","0 0 100 22");
+  sv.setAttribute("preserveAspectRatio","none");
+  const pts=(trend||[]).filter(t=>t[idx]!=null);
+  const lo=-2.5, hi=3, y=v=>(22-((Math.max(lo,Math.min(hi,v))-lo)/(hi-lo))*20-1).toFixed(2);
+  [bands[1], bands[2]].forEach(cut=>{ const l=document.createElementNS(SVGNS,"line");
+    l.setAttribute("x1","0"); l.setAttribute("x2","100"); l.setAttribute("y1",y(cut)); l.setAttribute("y2",y(cut));
+    sv.appendChild(l); });
+  if(pts.length>=2){
+    const t0=pts[0][0], t1=Math.max(now||pts[pts.length-1][0], t0+1);
+    const pl=document.createElementNS(SVGNS,"polyline");
+    pl.setAttribute("points", pts.map(t=>((100*(t[0]-t0)/(t1-t0)).toFixed(2))+","+y(t[idx])).join(" "));
+    const last=pts[pts.length-1][idx];
+    const band = last>=bands[2]?3: last>=bands[1]?2: last>=bands[0]?1:0;
+    pl.setAttribute("style","stroke:var(--cue"+band+")");
+    sv.appendChild(pl);
+  }
+  return sv;
+}
+
+drawKey();
+tick();
+</script>
+</body>
+</html>

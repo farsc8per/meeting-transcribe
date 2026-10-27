@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — meetings</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>mt <span>· meetings</span></h1>
+    <a class="nav" href="/tracking">Tracking &rarr;</a>
+    <a class="nav" href="/weekly">Weekly &rarr;</a>
+    <a class="nav" href="/files">Files &rarr;</a>
+    <a class="nav" href="/contacts">Contacts &rarr;</a>
+    <a class="nav" href="/help">Help &rarr;</a>
+    <div class="day" id="day"></div>
+  </header>
+
+  <div class="search">
+    <input type="search" id="sq" autocomplete="off" spellcheck="false"
+           placeholder="Search summaries and transcripts…">
+    <div class="kinds" id="skinds">
+      <button class="on" data-kind="">Everything</button>
+      <button data-kind="summary">Summaries</button>
+      <button data-kind="transcript_segment,transcript">Transcripts</button>
+    </div>
+  </div>
+  <div id="sresults" class="rows" hidden></div>
+
+  <div id="livebox"></div>
+
+  <h2>Record now</h2>
+  <div class="card">
+    <div class="grid">
+      <label class="f">Name <input type="text" id="rname"
+        placeholder="leave blank to use the meeting you're in"></label>
+      <label class="f">Customer
+        <select id="rcust"><option value="">— internal (Recordings/) —</option></select>
+      </label>
+    </div>
+    <label class="f" style="margin-top:11px">Title in the transcript
+      <input type="text" id="rtitle" placeholder="Change Advisory Board — Sep 5">
+    </label>
+    <div class="grid" style="margin-top:11px">
+      <label class="f">Microphone
+        <select id="rmic"></select>
+      </label>
+      <label class="f" id="rspkwrap" hidden>Speaker
+        <select id="rspk"></select>
+      </label>
+    </div>
+    <div class="opts">
+      <label><input type="checkbox" id="oMicOnly"> Mic only (in person)</label>
+      <label><input type="checkbox" id="oNoMic"> System only (webinar)</label>
+      <label><input type="checkbox" id="oInPerson"> Several people share my mic</label>
+      <label title="Measure how each speaker's delivery moves against their own normal — live in the Room panel, and again after the call. Experimental; this meeting only."><input type="checkbox" id="oCues"> Vocal cues <span class="note">(experimental)</span></label>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:13px">
+      <button class="primary" id="go">Start recording</button>
+      <span class="note" id="micnote"></span>
+    </div>
+    <div class="note" id="policynote" style="margin-top:8px">Recording? Understand your company's recording policy.</div>
+  </div>
+
+  <h2>Today</h2>
+  <div id="today" class="rows"><div class="empty">loading…</div></div>
+
+  <div class="linkbar"><h2>Recordings</h2><a id="archlink" href="/archive">Archive &rarr;</a></div>
+  <div id="sessions" class="rows"><div class="empty">loading…</div></div>
+</div>
+
+<script src="/static/pager.js"></script>
+<script src="/static/md.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const api = (p, opts) => fetch(p, opts).then(r => r.json());
+let recording = false;
+let clicking = false;     // a start request is in flight from this tab
+// Stop was clicked for this session. Kept OUTSIDE the panel, which is rebuilt every 2 s:
+// on Oct 21 the rebuild put "Stop and transcribe" straight back while the recorder was
+// still shutting down, so the stop looked ignored and got clicked again and again.
+let stopping = null;      // {session, t}
+// A press in progress. Rebuilding the panel between mouse-down and mouse-up swaps the
+// button out from under the pointer and the click never fires — so hold the redraw.
+// A timestamp, not a flag: a release outside the window may never report back.
+let pressing = 0;
+
+$("#day").textContent = new Date().toLocaleDateString(undefined,
+  {weekday:"long", month:"short", day:"numeric"});
+
+function el(tag, cls, text){ const e=document.createElement(tag); if(cls)e.className=cls;
+  if(text!=null)e.textContent=text; return e; }
+
+$("#livebox").addEventListener("pointerdown", () => { pressing = Date.now(); });
+// After the click has been dispatched, not before it.
+window.addEventListener("pointerup", () => setTimeout(() => { pressing = 0; }, 0));
+window.addEventListener("pointercancel", () => { pressing = 0; });
+
+async function drawState(){
+  const s = await api("/api/state");
+  if(pressing && Date.now() - pressing < 3000) return;
+  recording = !!s.recording;
+  if(!recording) stopping = null;
+  // One card per in-flight pass, newest first, and the recording banner on top of them.
+  // Both at once is the normal case: the last meeting transcribes while the next records.
+  const passes = s.passes || [];
+  const box = $("#livebox"); box.innerHTML = "";
+  // Deliberately NOT disabled while processing: back-to-back meetings are the whole
+  // point, and the next call must be recordable while the last one is still transcribing.
+  // Also locked while a start is pending: mtcapture takes ~10s to appear, and a second
+  // click in that gap started a second recorder into the same folder (Sep 28).
+  const pending = !!s.starting || clicking;
+  $("#go").disabled = recording || pending;
+  $("#go").textContent = s.starting ? "Starting\u2026 " + s.starting.elapsed + "s"
+                       : clicking   ? "Starting\u2026" : "Start recording";
+  if(s.start_error && !recording && !pending){
+    const e = el("div","live");
+    e.appendChild(el("div","t","Recording did not start: " + s.start_error.why));
+    if(s.start_error.tail) e.appendChild(el("div","tail", s.start_error.tail));
+    e.appendChild(el("div","note","Full log: " + s.start_error.log));
+    box.appendChild(e);
+  }
+  if(recording) drawRecording(box, s);
+  passes.forEach(p => drawProcessing(box, p));
+  drawQueue(box, s.queue);
+  // The moment a pass finishes, pull the list in rather than making him wait out
+  // the 15s tick — "is it ready yet" is the whole question this answers.
+  if(passes.length < passCount) drawSessions();
+  passCount = passes.length;
+  setTitle(s, passes);
+}
+
+function queuePost(act, id, btn){
+  btn.disabled = true;
+  return api("/api/queue/" + act, {method:"POST", headers:{"Content-Type":"application/json"},
+                                   body: JSON.stringify({id})})
+    .then(r => { if(!r.ok){ btn.disabled = false; alert(r.why || "could not " + act); } })
+    .then(drawState);
+}
+
+// Meetings recorded but not processed yet. Running ones already have a Processing card;
+// this is everything waiting behind them, and anything that failed.
+function drawQueue(box, q){
+  const jobs = ((q && q.jobs) || []).filter(j => j.state !== "running");
+  if(!jobs.length) return;
+  const d = el("div","work");
+  const top = el("div","top");
+  top.appendChild(el("span","t", "Waiting to process"));
+  top.appendChild(el("span","meta", jobs.length + (jobs.length === 1 ? " meeting" : " meetings")));
+  d.appendChild(top);
+  jobs.forEach(j => {
+    const row = el("div","note");
+    row.style.display = "flex"; row.style.alignItems = "center"; row.style.gap = "10px";
+    row.style.marginTop = "8px";
+    const what = j.state === "failed" ? "failed — " + (j.why || "")
+               : "#" + j.position + (j.now ? " · next, on your say-so" : "")
+                 + (j.waiting ? " · waiting: " + j.waiting : "");
+    const txt = el("span","", (j.title || j.session)
+      + (j.recorded_secs ? "  ·  " + fmtSecs(j.recorded_secs) + " recorded" : "")
+      + "  ·  " + what);
+    txt.style.minWidth = "0"; txt.style.flex = "1";
+    row.appendChild(txt);
+    if(j.state === "queued" && !j.now){
+      const b = el("button","tap","Process now");
+      b.title = "Start as soon as nothing is recording, even if the machine is busy "
+              + "or a meeting is about to start";
+      b.onclick = () => queuePost("now", j.id, b);
+      row.appendChild(b);
+    }
+    if(j.state === "failed"){
+      const b = el("button","tap","Retry"); b.onclick = () => queuePost("retry", j.id, b);
+      const x = el("button","tap","Dismiss");
+      x.title = "Take it off this list. The recording stays where it is; "
+              + "`mt queue add <folder>` queues it again.";
+      x.onclick = () => queuePost("dismiss", j.id, x);
+      row.appendChild(b); row.appendChild(x);
+    }
+    d.appendChild(row);
+    if(j.state === "failed" && j.log) d.appendChild(el("div","note","Log: " + j.log));
+  });
+  d.appendChild(el("div","note",
+    "A recording always comes first: these start once nothing is recording and the "
+    + "machine is quiet, and a running one is paused the moment you start recording."));
+  box.appendChild(d);
+}
+
+function fmtSecs(s){
+  s = Math.round(s); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return (h ? h + ":" + String(m).padStart(2,"0") : m) + ":" + String(x).padStart(2,"0");
+}
+
+function drawRecording(box, s){
+  const d = el("div","live");
+  const top = el("div","top");
+  top.appendChild(el("span","dot"));
+  top.appendChild(el("span","t","Recording"));
+  top.appendChild(el("span","el", s.elapsedText || "0:00"));
+  const meta = el("span","meta", (s.mic? s.mic+"  ·  ":"") + (s.session||""));
+  top.appendChild(meta);
+  top.appendChild(levelDots(s.levels));
+  if(s.params && s.params.cues){
+    const room = el("button","tap","Open Room ↗");
+    room.title = "Pop-out panel: each speaker's vocal cues, live";
+    room.onclick = () => openRoom(s.session);
+    top.appendChild(room);
+  }
+  // A STANDARD control, not an error-state one. The user asked for exactly this: "we might
+  // have the button to teardown and recreate SCStream as a standard button so we can
+  // test it out with me at the screen… I can just click it even if there isn't an
+  // issue." So it is here whenever a capture is running, next to Stop, and it never
+  // stops the recording — it signals the recorder to rebuild its audio tap in place.
+  const tap = el("button","tap","Rebuild audio tap");
+  tap.title = "Tear down and recreate the system-audio stream, without stopping the "
+            + "recording. Safe to click at any time.";
+  tap.style.marginLeft="auto";
+  tap.onclick = () => capturePost("/api/capture/recapture", {session: s.session},
+                                  tap, "Rebuild audio tap");
+  top.appendChild(tap);
+  const stop = el("button","stop","Stop and transcribe");
+  // Still "stopping…" after a redraw; offered again only if 30 s pass and it is still up.
+  if(stopping && stopping.session === s.session && Date.now() - stopping.t < 30000){
+    stop.disabled = true; stop.textContent = "stopping…";
+  }
+  stop.onclick = async () => {
+    stopping = {session: s.session, t: Date.now()};
+    stop.disabled = true; stop.textContent = "stopping…";
+    const r = await api("/api/record/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    if(!r.ok){ stopping = null; stop.disabled=false; stop.textContent="Stop and transcribe"; alert(r.why||"could not stop"); }
+  };
+  top.appendChild(stop);
+  d.appendChild(top);
+  if(tapNote) d.appendChild(el("div","note", tapNote));
+  const hc = healthCard(s);
+  if(hc) d.appendChild(hc);
+  if(s.live && s.live.trim()){
+    const t = el("div","tail", s.live);
+    d.appendChild(t);
+    requestAnimationFrame(()=>{ t.scrollTop = t.scrollHeight; });
+  } else {
+    d.appendChild(el("div","note","Waiting for the first speech…"));
+  }
+  // The raw heartbeat, for troubleshooting only. Its "peak" is the loudest sample since
+  // the start, so it never falls — the dots above are what says audio is arriving now.
+  if(s.heartbeat){
+    const det = el("details","hb");
+    det.open = hbOpen;
+    det.ontoggle = () => { hbOpen = det.open; };
+    det.appendChild(el("summary","", "recorder heartbeat"));
+    det.appendChild(el("div","evs", s.heartbeat
+      + "\npeak = loudest since the recording started, not current volume"));
+    d.appendChild(det);
+  }
+  box.appendChild(d);
+}
+
+// mic ● system ● — is sound arriving on each track right now. A glance, never an alarm:
+// a muted far end and a dead tap look identical from here, and the health card is what
+// tells those apart (by asking). Every string is built here; nothing from a file.
+let hbOpen = false;      // keep the heartbeat open across the 2s re-render
+function levelDots(levels){
+  const wrap = el("span","lvls");
+  const lv = levels || {};
+  ["mic","system"].forEach(k => {
+    const r = lv[k] || {state:"waiting"};
+    const s = el("span","lvl " + (r.state || "waiting"));
+    s.appendChild(el("i"));
+    s.appendChild(el("span", null, k));
+    s.title = levelText(k, r);
+    wrap.appendChild(s);
+  });
+  return wrap;
+}
+
+function levelText(k, r){
+  const who = k === "mic" ? "Your mic" : "System audio (the call)";
+  if(r.state === "waiting") return who + ": no audio written yet";
+  if(r.state === "stalled") return who + ": the file has stopped growing — no new audio";
+  const db = (r.db != null) ? "  ·  " + r.db + " dBFS" : "";
+  if(r.state === "sound") return who + ": sound arriving" + db;
+  if(r.quiet_for == null) return who + ": silent for the last " + (r.window || 60) + "s+" + db;
+  return who + ": quiet for " + r.quiet_for + "s" + db;
+}
+
+// ── capture health ───────────────────────────────────────────────────────────
+// Everything below renders ONE dict that the server rebuilt from capture_events.jsonl
+// and the user's own answers, both on disk. Nothing is remembered in this page, so a
+// reload — or a restarted server — shows the identical card.
+//
+// Every string here comes out of a file the recorder wrote, so it is set with
+// textContent and never innerHTML. el() does that for us; the only markup on this path
+// is structural.
+let hcOpen = false;      // keep the event list open across the 2s re-render
+let tapNote = "";        // immediate feedback for the button, until the recorder logs it
+let tickOn = false;
+
+async function capturePost(path, body, btn, label){
+  const was = btn ? btn.textContent : null;
+  if(btn){ btn.disabled = true; btn.textContent = "working…"; }
+  let r = null;
+  try{
+    r = await api(path, {method:"POST", headers:{"Content-Type":"application/json"},
+                         body: JSON.stringify(body || {})});
+  }catch(e){ r = {ok:false, why:"the server did not answer"}; }
+  if(btn){ btn.disabled = false; btn.textContent = label || was; }
+  if(!r || !r.ok){ alert((r && r.why) || "that did not work"); }
+  else if(path.indexOf("recapture") >= 0){
+    tapNote = "Audio tap rebuild requested at " + new Date().toLocaleTimeString()
+            + " — the recording never stopped.";
+  }
+  drawState();
+  return r;
+}
+
+// The healthy case has to stay quiet. A probe that HEARD its cue means the tap is alive
+// and the far end is simply not talking: alarming on that would teach him to ignore the
+// alert, which is the exact failure this card exists to prevent.
+function healthCard(s){
+  const h = (s && s.health) || {};
+  const st = h.state || "ok";
+  const dead = !!h.alarm, ask = !!h.ask;
+  if(st === "ok" && !h.attempts && !h.dismissed) return null;
+
+  const cls = dead ? "dead" : (ask ? "ask" : (st === "recovered" ? "back" : "quiet"));
+  const d = el("div","hc " + cls);
+  const t = el("div","hct");
+  t.appendChild(el("span", null, dead ? "\u26A0" : (ask ? "?" : "\u2713")));
+  t.appendChild(el("span", null,
+    dead ? (h.title || "System audio is NOT being recorded")
+         : ask ? (h.title || "System audio may not be recording")
+         : st === "recovered" ? (h.title || "System audio came back")
+         : h.dismissed ? "Audio-tap alert dismissed"
+         : "Audio tap rebuilt"));
+  if(h.sinceText) t.appendChild(el("span","when","from " + h.sinceText));
+  if(h.atText) t.appendChild(el("span","when","back at " + h.atText));
+  d.appendChild(t);
+
+  if(h.detail) d.appendChild(el("div","hcw", h.detail));
+  if(h.confirmed && dead)
+    d.appendChild(el("div","hcw","You answered that people were talking."));
+  if(h.last_recapture && !ask){
+    const r = h.last_recapture;
+    d.appendChild(el("div","hcw", "Last rebuild: " + (r.reason || "") + " attempt "
+      + (r.attempt != null ? r.attempt : "?") + " at " + (r.tText || "?")
+      + (r.ok ? " \u00B7 ok" : " \u00B7 FAILED")
+      + (r.gap_ms != null ? " \u00B7 " + Math.round(r.gap_ms) + " ms gap" : "")));
+  }
+
+  // The question, never a verdict: a muted far end and a dead tap look identical from
+  // here, so his answer is what settles it.
+  if(ask){
+    d.appendChild(el("div","hcq", h.question || "Is anyone talking on the call right now?"));
+    const b = el("div","hcb");
+    const yes = el("button","yes","Yes \u2014 they are talking");
+    yes.onclick = () => capturePost("/api/capture/answer",
+      {session: s.session, key: h.key, answer: "yes"}, yes, "Yes \u2014 they are talking");
+    const no = el("button",null,"No \u2014 nobody is");
+    no.onclick = () => capturePost("/api/capture/answer",
+      {session: s.session, key: h.key, answer: "no"}, no, "No \u2014 nobody is");
+    b.appendChild(yes); b.appendChild(no);
+    d.appendChild(b);
+  } else if(dead){
+    const b = el("div","hcb");
+    const fix = el("button","yes","Rebuild the audio tap now");
+    fix.onclick = () => capturePost("/api/capture/recapture", {session: s.session},
+                                    fix, "Rebuild the audio tap now");
+    const no = el("button",null,"Dismiss");
+    no.title = "Stop flagging this one. The recording carries on either way.";
+    no.onclick = () => capturePost("/api/capture/answer",
+      {session: s.session, key: h.key, answer: "no"}, no, "Dismiss");
+    b.appendChild(fix); b.appendChild(no);
+    d.appendChild(b);
+  }
+
+  const evs = h.events || [];
+  if(evs.length){
+    const det = el("details");
+    det.open = hcOpen;
+    det.ontoggle = () => { hcOpen = det.open; };
+    det.appendChild(el("summary","", "what the recorder logged (" + evs.length + ")"));
+    det.appendChild(el("div","evs",
+      evs.map(e => (e.tText || "") + "  " + (e.text || e.event || "")).join("\n")));
+    d.appendChild(det);
+  }
+  return d;
+}
+
+let passCount = 0;
+const BASE_TITLE = document.title;
+
+// The tab itself is the status light. In back-to-back meetings the page is buried
+// behind a call window, and a glance at the tab beats switching to it.
+function setTitle(s, passes){
+  passes = passes || [];
+  const busy = passes.filter(p => !p.failed);
+  // The tick. Two seconds on, two seconds off, in the one place he can see from inside
+  // a call window without switching to this page. It is visual because an audible tick
+  // would be captured by the very system tap under investigation and would sit in his
+  // headset over a live customer call. It stops the instant the state resolves or he
+  // answers, because it is driven by the same server state as the card.
+  const h = (s && s.health) || {};
+  if(s.recording && (h.alarm || h.ask)){
+    tickOn = !tickOn;
+    document.title = tickOn ? "\u26A0 CHECK AUDIO \u00B7 mt"
+                            : "\u25CF " + (s.elapsedText||"") + " \u00B7 recording";
+    return;
+  }
+  if(s.recording)     document.title = "\u25CF " + (s.elapsedText||"") + " \u00B7 recording";
+  else if(busy.length) document.title = "\u2699 " + busy[0].step + "/" + busy[0].steps
+                        + (busy.length > 1 ? "  +" + (busy.length-1) : "") + " \u00B7 processing";
+  else if(passes.length) document.title = "\u26A0 processing stopped";
+  else if(queued(s).length) document.title = "\u23F3 " + queued(s).length + " queued \u00B7 mt";
+  else                document.title = BASE_TITLE;
+}
+
+function queued(s){
+  return (((s && s.queue) || {}).jobs || []).filter(j => j.state === "queued");
+}
+
+function drawProcessing(box, s){
+  const d = el("div","work");
+  const top = el("div","top");
+  top.appendChild(el("span", s.failed || s.paused ? "" : "spin"));
+  top.appendChild(el("span","t", s.failed ? "Processing stopped"
+                               : s.paused ? "Paused while you record" : "Processing"));
+  if(s.elapsedText) top.appendChild(el("span","el", s.elapsedText));
+  top.appendChild(el("span","meta",
+    (s.title || s.session || "") + (s.recordedText ? "  \u00B7  " + s.recordedText + " recorded" : "")));
+  d.appendChild(top);
+
+  // Server-side and weighted by how long each step actually takes — an evenly spaced
+  // bar parked at 30% for the entire transcribe step, which is most of the wait.
+  const bar = el("div","bar"); const fill = el("i");
+  fill.style.width = (s.failed ? 100 : (s.percent || 2)) + "%";
+  if(s.failed) fill.style.background = "var(--rec)";
+  bar.appendChild(fill); d.appendChild(bar);
+
+  d.appendChild(el("div","note",
+    "step " + s.step + " of " + s.steps + "  \u00B7  " + s.phase));
+  // Time-in-step is measured; the ETA is a guess and is labelled as one. Whisper is
+  // silent for the whole transcribe step, so this is the only movement there is to show.
+  if(s.step_elapsedText){
+    let t = s.step_elapsedText + " in this step";
+    if(s.step_etaText) t += "  \u00B7  estimate ~" + s.step_etaText;
+    d.appendChild(el("div","note", t));
+  }
+
+  if(s.failed){
+    const a = el("div","err"); a.style.marginTop = "10px";
+    a.textContent = "The transcription pass exited before it finished. The audio is safe — "
+                  + "re-run it from a terminal with:\n  mt process " + (s.path || s.session || "");
+    a.style.whiteSpace = "pre-wrap";
+    d.appendChild(a);
+  } else if(s.paused){
+    d.appendChild(el("div","note","Frozen exactly where it was, so the recording has the "
+                                + "machine to itself. It picks up again shortly after the recording ends."));
+  } else {
+    d.appendChild(el("div","note","Nothing is being recorded — this is the transcript being built. "
+                                + "It will appear below on its own when it is done."));
+  }
+  // A queued job holding its optional steps for a busy machine can be told to go ahead.
+  if(s.job && !s.now && !s.paused && /^waiting/.test(s.phase || "")){
+    const b = el("button","tap","Go ahead anyway");
+    b.title = "Run the remaining steps now, even though the machine is busy";
+    b.onclick = () => queuePost("now", s.job, b);
+    d.appendChild(b);
+  }
+  if(s.tail && s.tail.trim()){
+    const t = el("div","tail", s.tail);
+    d.appendChild(t);
+    requestAnimationFrame(()=>{ t.scrollTop = t.scrollHeight; });
+  }
+  box.appendChild(d);
+}
+
+async function drawToday(){
+  const box = $("#today"); const r = await api("/api/today");
+  box.innerHTML = "";
+  if(!r.ok){
+    const e = el("div","err");
+    e.style.whiteSpace="pre-wrap";
+    e.textContent = r.why || "Calendar unavailable.";
+    box.appendChild(e); return;
+  }
+  // The sync age is the honest freshness signal: EventKit reads a local store, so
+  // "cached 0 min ago" can still be yesterday's calendar when sync is blocked.
+  const age = m => m < 60 ? m + " min" : Math.floor(m/60) + "h" + String(m%60).padStart(2,"0") + "m";
+  const sy = r.sync || {};
+  if(sy.stale && sy.stale_why){
+    const w = el("div","err");
+    w.style.whiteSpace = "pre-wrap";
+    w.textContent = "Calendar may be out of date.\n" + sy.stale_why;
+    box.appendChild(w);
+  } else if(sy.sync_age_minutes != null){
+    box.appendChild(el("div","note","calendar synced " + age(sy.sync_age_minutes) + " ago"));
+  } else if(r.age_minutes != null && r.age_minutes > 60){
+    box.appendChild(el("div","note","calendar cached " + age(r.age_minutes) + " ago"));
+  }
+  if(!r.events.length){ box.appendChild(el("div","empty","Nothing on the calendar today.")); return; }
+  r.events.forEach(ev => {
+    const row = el("div","row");
+    row.appendChild(el("div","when", ev.start + (ev.end? "–"+ev.end : "")));
+    const mid = el("div"); mid.style.minWidth="0";
+    mid.appendChild(el("div","name", ev.title));
+    const bits = [];
+    if(ev.attendees) bits.push(ev.attendees+" invited");
+    if(ev.conference) bits.push("has a meet link");
+    mid.appendChild(el("div","sub", bits.join("  ·  ")));
+    row.appendChild(mid);
+    const right = el("div","right");
+    if(ev.guess_customer) right.appendChild(el("span","tag cust", ev.guess_customer));
+    // The button only fills in the Record form, so it is never hidden. "recorded" used to
+    // replace it, which locked the meeting out after a false start (Oct 5 2026: a start on
+    // the wrong mic, killed and restarted, left no way back to the form from the calendar).
+    const recorded = ev.recorded && ev.recorded.length;
+    if(recorded) right.appendChild(el("span","tag ok","recorded"));
+    const b = el("button",null, recorded ? "Record again" : "Record this");
+    b.onclick = () => {
+      $("#rname").value = ev.slug;
+      $("#rtitle").value = ev.title;
+      $("#rcust").value = ev.guess_customer || "";
+      window.scrollTo({top:0,behavior:"smooth"});
+      $("#rname").focus();
+    };
+    right.appendChild(b);
+    row.appendChild(right);
+    box.appendChild(row);
+  });
+}
+
+// ── summary overlay ──────────────────────────────────────────────────────────
+function closeSummary(){ const m = $("#modal"); if(m) m.remove(); }
+
+async function showSummary(id, title){
+  closeSummary();
+  const wrap = el("div","modal"); wrap.id = "modal";
+  const sheet = el("div","sheet");
+  const head = el("div","head");
+  head.appendChild(el("b", null, title || id));
+  const x = el("button",null,"Close");
+  x.onclick = closeSummary;
+  head.appendChild(x);
+  sheet.appendChild(head);
+  const body = el("div","md");
+  body.textContent = "loading…";
+  sheet.appendChild(body);
+  wrap.appendChild(sheet);
+  // Click the backdrop or press Escape — both close. A modal you cannot dismiss by
+  // reflex is worse than no modal.
+  wrap.onclick = e => { if(e.target === wrap) closeSummary(); };
+  document.body.appendChild(wrap);
+
+  const r = await api("/api/summary?id=" + encodeURIComponent(id));
+  if(!r.ok){
+    body.innerHTML = "";
+    const e2 = el("div","err");
+    e2.style.whiteSpace = "pre-wrap";
+    e2.textContent = (r.why || "No summary.") + (r.hint ? "\n" + r.hint : "");
+    body.appendChild(e2);
+    return;
+  }
+  body.innerHTML = mdToHtml(r.markdown);
+}
+document.addEventListener("keydown", e => { if(e.key === "Escape") closeSummary(); });
+
+async function archiveSession(id, archived){
+  return api("/api/archive", {method:"POST", headers:{"Content-Type":"application/json"},
+                              body: JSON.stringify({session:id, archived})});
+}
+
+// Paged in the browser — the list is small and fetched whole. Built ONCE and kept:
+// drawSessions() re-runs every 15 s while a recording is processing, and a pager rebuilt
+// on each poll would throw you back to page 1 mid-read.
+let SPG = null;
+function sessPager(){
+  if(SPG) return SPG;
+  SPG = mtPager("sessions", drawSessions);
+  const box = $("#sessions");
+  box.parentNode.insertBefore(SPG.mount(), box);
+  box.parentNode.insertBefore(SPG.mount(), box.nextSibling);
+  return SPG;
+}
+
+async function drawSessions(){
+  const pg = sessPager();
+  const box = $("#sessions"); const r = await api("/api/sessions");
+  box.innerHTML = "";
+  const link = $("#archlink");
+  if(link) link.textContent = r.archived_count ? "Archive (" + r.archived_count + ") →" : "Archive →";
+  if(!r.sessions.length){
+    pg.setTotal(0);
+    box.appendChild(el("div","empty", r.archived_count
+      ? "Nothing left to review — it is all archived."
+      : "No processed recordings yet."));
+    return;
+  }
+  pg.slice(r.sessions).forEach(s => {
+    const row = el("div","row");
+    const when = el("div","when");
+    when.appendChild(el("b", null, s.day || (s.id||"").slice(0,10)));
+    if(s.started) when.appendChild(el("span", null, s.started));
+    row.appendChild(when);
+    const mid = el("div"); mid.style.minWidth="0";
+    mid.appendChild(el("div","name", s.title));
+    mid.appendChild(el("div","sub", s.duration + "  ·  " + s.voices + " voices" +
+      (s.mic? "  ·  "+s.mic : "")));
+    row.appendChild(mid);
+    const right = el("div","right");
+    if(s.customer) right.appendChild(el("span","tag cust", s.customer));
+    const rvTag = el("span","tag " + (s.needs_review? "todo":"ok"),
+      s.needs_review ? s.needs_review+" to review" : "reviewed");
+    // Strong voiceprint matches don't wait on a Confirm, so they never count as "to review".
+    if(s.matched) rvTag.title = s.matched + " voice" + (s.matched===1?"":"s")
+      + " named by a strong voiceprint match — Confirm is optional";
+    right.appendChild(rvTag);
+    if(s.handed_off && !s.summarized) right.appendChild(el("span","tag ok","handed off"));
+    // "summarised" supersedes "handed off" — handing off is the request, the summary is
+    // the thing it asked for, and showing both just makes the row longer.
+    if(s.summarized) right.appendChild(el("span","tag done","summarized"));
+    // Only ever a positive count. Plenty of meetings legitimately raise no action items,
+    // so the absence of this tag must never read as "you forgot something".
+    if(s.tracked) right.appendChild(el("span","tag track", s.tracked + " tracked"));
+
+    if(s.summarized){
+      const sm = el("button",null,"Summary");
+      sm.onclick = () => showSummary(s.id, s.title);
+      right.appendChild(sm);
+    }
+    const rv = el("button",null,"Review");
+    rv.onclick = () => { location.href = "/review?session=" + encodeURIComponent(s.id); };
+    right.appendChild(rv);
+    const ar = el("button",null,"Archive");
+    ar.onclick = async () => {
+      ar.disabled = true;
+      const r = await archiveSession(s.id, true);
+      if(!r.ok){ ar.disabled = false; alert(r.why || "could not archive"); return; }
+      drawSessions();
+    };
+    right.appendChild(ar);
+    row.appendChild(right);
+    box.appendChild(row);
+  });
+}
+
+async function boot(){
+  const [c, m] = await Promise.all([api("/api/customers"), api("/api/mics")]);
+  const sel = $("#rcust");
+  c.customers.forEach(x => { const o=el("option",null,x); o.value=x; sel.appendChild(o); });
+  fillMics(m);
+  await Promise.all([drawState(), drawToday(), drawSessions()]);
+}
+
+// The default option is mt's OWN choice (pick_mic on the server), not the macOS
+// default input. Those two disagree whenever something like a dock or a webcam holds
+// the default slot while a mic_priority entry is plugged in, and the old note showed
+// the wrong one of the pair — you would only find out which mic you actually recorded
+// on when you opened the review page.
+let micAutoNote = "";
+
+function fillMics(m){
+  const sel = $("#rmic");
+  const keep = sel.value;
+  sel.textContent = "";
+  const auto = el("option", null, "Automatic \u2014 " + (m.chosen_name || "system default"));
+  auto.value = "";
+  sel.appendChild(auto);
+  (m.mics || []).forEach(x => {
+    const o = el("option", null, x.name + (x.default ? "  (system default)" : ""));
+    o.value = x.uid;
+    sel.appendChild(o);
+  });
+  // Preserve a deliberate pick across a refresh, but only if that device is still
+  // there — silently keeping a UID that has been unplugged would hand mtcapture a
+  // device that cannot open.
+  sel.value = [...sel.options].some(o => o.value === keep) ? keep : "";
+  micAutoNote = m.why ? "mic: " + (m.chosen_name || "system default") + "  \u00b7  " + m.why : "";
+  fillSpeakers(m);
+  drawMicNote();
+}
+
+// Speaker (output). "Automatic" is mt's own answer too: the pick remembered for this
+// desk, else leave macOS's output alone. A hand pick here is remembered for this desk
+// when the recording starts (audioprefs.py), so the next meeting at the same desk gets it.
+let spkAutoNote = "";
+
+function fillSpeakers(m){
+  const sel = $("#rspk");
+  $("#rspkwrap").hidden = false;
+  // Without build/mtaudio there is nothing to pick, but a silently missing control is
+  // how a skipped build step goes unnoticed — so say what is missing instead of hiding.
+  sel.disabled = !m.speakers_ok;
+  if(!m.speakers_ok){
+    sel.textContent = "";
+    const o = el("option", null, "Needs build/mtaudio — run ./make.sh");
+    o.value = "";
+    sel.appendChild(o);
+    spkAutoNote = "";
+    return;
+  }
+  const keep = sel.value;
+  sel.textContent = "";
+  const auto = el("option", null, m.speaker_chosen
+    ? "Automatic \u2014 " + m.speaker_chosen_name
+    : "Automatic \u2014 leave as is (" + (m.speaker_chosen_name || "system default") + ")");
+  auto.value = "";
+  sel.appendChild(auto);
+  (m.speakers || []).forEach(x => {
+    const o = el("option", null, x.name + (x.default ? "  (current)" : ""));
+    o.value = x.uid;
+    sel.appendChild(o);
+  });
+  sel.value = [...sel.options].some(o => o.value === keep) ? keep : "";
+  spkAutoNote = m.speaker_chosen
+    ? "speaker: " + m.speaker_chosen_name + "  \u00b7  " + m.speaker_why : "";
+}
+
+function drawMicNote(){
+  const parts = [];
+  const sel = $("#rmic");
+  if($("#oNoMic").checked) parts.push("no mic \u2014 system audio only");
+  else parts.push(sel.value
+    ? "mic: " + sel.options[sel.selectedIndex].text + "  \u00b7  remembered for this desk"
+    : micAutoNote);
+  const ss = $("#rspk");
+  if(!ss.disabled){
+    if(ss.value) parts.push("speaker: " + ss.options[ss.selectedIndex].text.replace("  (current)", "")
+                            + "  \u00b7  remembered for this desk");
+    else if(spkAutoNote) parts.push(spkAutoNote);
+  }
+  $("#micnote").textContent = parts.filter(Boolean).join("    |    ");
+}
+
+$("#rmic").onchange = drawMicNote;
+$("#rspk").onchange = drawMicNote;
+$("#oNoMic").addEventListener("change", () => {
+  $("#rmic").disabled = $("#oNoMic").checked;
+  drawMicNote();
+});
+// Mic only means a room mic, and a room mic means more than one voice. Tick the
+// shared-mic box with it; untick it by hand for a solo dictation. Forgetting it costs
+// nothing anyway: `mt process <session> --in-person --no-system` re-splits afterwards.
+$("#oMicOnly").addEventListener("change", () => {
+  if($("#oMicOnly").checked) $("#oInPerson").checked = true;
+});
+
+// A tab left open all morning has a stale device list, which is the case that matters:
+// you plug in a headset and then start the call. One enumeration per tab focus.
+document.addEventListener("visibilitychange", async () => {
+  if(document.visibilityState === "visible" && !recording){
+    try { fillMics(await api("/api/mics")); } catch(e) {}
+  }
+});
+
+// The vocal-cues checkbox remembers its last setting on this browser. A convenience only:
+// storage can be blocked or empty, and then it simply starts unticked.
+try { $("#oCues").checked = localStorage.getItem("mt.cues") === "1"; } catch(e) {}
+$("#oCues").onchange = () => {
+  try { localStorage.setItem("mt.cues", $("#oCues").checked ? "1" : "0"); } catch(e) {}
+};
+
+function openRoom(session){
+  window.open("/room?session=" + encodeURIComponent(session || ""), "mtroom",
+              "width=440,height=820");
+}
+
+$("#go").onclick = async () => {
+  const body = {
+    name: $("#rname").value || "meeting",
+    customer: $("#rcust").value,
+    title: $("#rtitle").value,
+    mic_only: $("#oMicOnly").checked,
+    no_mic: $("#oNoMic").checked,
+    mic_id: $("#rmic").value,
+    speaker_id: $("#rspk").value,
+    in_person: $("#oInPerson").checked,
+    cues: $("#oCues").checked,
+  };
+  if(clicking) return;
+  clicking = true;
+  $("#go").disabled = true; $("#go").textContent = "Starting\u2026";
+  let r;
+  try {
+    r = await api("/api/record/start", {method:"POST", signal: AbortSignal.timeout(20000),
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+  } catch(e) {
+    r = {ok:false, why:"the server did not answer the start request (" + e.name + ")"};
+  }
+  clicking = false;
+  if(!r.ok){ alert(r.why || "could not start"); drawState(); return; }
+  if(r.name_from){
+    $("#micnote").textContent = "named \u201c" + r.name + "\u201d from " + r.name_from;
+  }
+  setTimeout(drawState, 700);
+};
+
+boot();
+setInterval(drawState, 2000);
+setInterval(drawSessions, 15000);
+</script>
+<script src="/static/search.js"></script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

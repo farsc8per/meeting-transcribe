@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — files</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="trk">
+<!-- The markdown editor. Browse on the left of the flow, open one, toggle Edit/Preview.
+     All behaviour lives in files.js — deliberately no inline script.
+
+     Two things this page will not do, both enforced in docs.py rather than here:
+     it cannot open transcript.md or live.md, and it cannot reach a path outside
+     Reports/ or Customers/ (workspace) or the assistant's memory directory (memory). -->
+<div class="wrap">
+  <header>
+    <h1>mt <span>· files</span></h1>
+    <a class="nav" href="/">&larr; meetings</a>
+    <a class="nav" href="/tracking">Tracking &rarr;</a>
+    <a class="nav" href="/weekly">Weekly &rarr;</a>
+    <a class="nav" href="/contacts">Contacts &rarr;</a>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="tabs" id="roots">
+    <button class="on" data-root="workspace">Workspace docs</button>
+    <button data-root="memory">Assistant memory</button>
+  </div>
+
+  <div class="filters" id="filters">
+    <input type="search" id="fq" autocomplete="off" spellcheck="false"
+           placeholder="Search path or filename…">
+    <select id="fkind"><option value="">Any kind</option></select>
+    <select id="fcust"><option value="">Every account</option></select>
+  </div>
+
+  <div id="count" class="count"></div>
+  <div id="list" class="rows"><div class="empty">loading…</div></div>
+</div>
+
+<script src="/static/pager.js"></script>
+<script src="/static/md.js"></script>
+<script src="/static/files.js"></script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

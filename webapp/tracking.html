@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — tracking</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="trk">
+<!-- Action items and projects out of the tracking DB. Same chrome as /contacts on purpose.
+     All behaviour lives in tracking.js — there is deliberately no inline script here.
+
+     The pickers are not cosmetic: status, priority and report_scope are <select>s built
+     from /api/tracking/meta, so the page cannot submit a spelling the vocabulary does not
+     have. A row already holding a legacy value keeps it until someone chooses to change
+     it — see the validate-forward note in tracking.py. -->
+<div class="wrap">
+  <header>
+    <h1>mt <span>· tracking</span></h1>
+    <a class="nav" href="/">&larr; meetings</a>
+    <a class="nav" href="/weekly">Weekly &rarr;</a>
+    <a class="nav" href="/files">Files &rarr;</a>
+    <a class="nav" href="/contacts">Contacts &rarr;</a>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="tabs" id="tabs">
+    <button class="on" data-tab="items">Action items</button>
+    <button data-tab="projects">Projects</button>
+  </div>
+
+  <!-- Quick views are saved filter combos, not new queries: clicking one sets the
+       controls below, so what it did is always visible and editable. -->
+  <div class="quick" id="quick"></div>
+
+  <div class="filters" id="filters">
+    <span class="qwrap"><input type="search" id="tq" autocomplete="off" spellcheck="false"
+           placeholder="Search text, or #id (e.g. #671 #787)…"><button id="tqx" class="qx" type="button" title="Clear the search (Esc)" hidden>&times;</button></span>
+    <select id="tcust"><option value="">Every account</option></select>
+    <select id="tproj"><option value="">Any project</option></select>
+    <select id="tstatus"><option value="">Any status</option></select>
+    <select id="tprio"><option value="">Any priority</option></select>
+    <select id="tscope"><option value="">Any scope</option></select>
+    <select id="towner"><option value="">Any owner</option></select>
+    <label id="tminewrap" title="Linked to you, or owner is exactly your name (config.json `owner`)">
+      <input type="checkbox" id="tmine"> Mine</label>
+    <select id="tdue"><option value="">Any due date</option></select>
+    <select id="tdep"><option value="">Any sequence</option></select>
+    <label id="thidewrap"><input type="checkbox" id="thide" checked> Hide done</label>
+    <button id="tclear" class="tap tclear" type="button" title="Reset every filter and the search" hidden>Clear filters</button>
+    <button id="tgantt" class="tap" title="Open the Gantt for the project or account picked here, in its own window">Gantt &#8599;</button>
+    <button id="tnew" class="primary">+ New item</button>
+  </div>
+
+  <div class="trk-body" id="trkbody">
+    <aside class="projside" id="projside"></aside>
+    <div class="trk-main">
+      <div id="count" class="count"></div>
+      <div class="sortbar" id="sortbar"></div>
+      <div class="selbar" id="selbar" hidden></div>
+      <div class="err" id="bulknote" hidden></div>
+      <div id="list" class="rows"><div class="empty">loading…</div></div>
+    </div>
+  </div>
+  <div class="bulkbar" id="bulkbar" hidden></div>
+</div>
+
+<script src="/static/pager.js"></script>
+<script src="/static/live.js"></script>
+<script src="/static/md.js"></script>
+<script src="/static/tracking.js"></script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2  ggml-large-v3-turbo-q5_0.bin
+bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30  ggml-small.en-q5_1.bin
+ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e  nemo_en_titanet_small.onnx
+220ad67ca923bef2fa91f2390c786097bf305bceb5e261d4af67b38e938e1079  sherpa-onnx-pyannote-segmentation-3-0/model.onnx
+69304b8a1b96bbe6b7d16c24079f0732c65faf3568a14cb82a8238c709afe76c  sherpa-onnx-zipformer-small-audio-tagging-2024-04-15/model.int8.onnx
+cdd1049833c4b86127c2773ac0d14a2754b6a6d0d1798002ed5c66e699708429  sherpa-onnx-zipformer-small-audio-tagging-2024-04-15/class_labels_indices.csv

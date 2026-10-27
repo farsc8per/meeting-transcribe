@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — archive</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>Archive <span>— meetings you are done with</span></h1>
+
+  <div class="linkbar"><h2>Archived</h2><a href="/">&larr; Back to meetings</a></div>
+  <div id="sessions" class="rows"><div class="empty">loading…</div></div>
+</div>
+
+<script src="/static/pager.js"></script>
+<script src="/static/md.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const api = (p, opts) => fetch(p, opts).then(r => r.json());
+function el(tag, cls, text){ const e=document.createElement(tag); if(cls)e.className=cls;
+  if(text!=null)e.textContent=text; return e; }
+
+function closeSummary(){ const m = $("#modal"); if(m) m.remove(); }
+
+async function showSummary(id, title){
+  closeSummary();
+  const wrap = el("div","modal"); wrap.id = "modal";
+  const sheet = el("div","sheet");
+  const head = el("div","head");
+  head.appendChild(el("b", null, title || id));
+  const x = el("button",null,"Close"); x.onclick = closeSummary;
+  head.appendChild(x); sheet.appendChild(head);
+  const body = el("div","md"); body.textContent = "loading…";
+  sheet.appendChild(body); wrap.appendChild(sheet);
+  wrap.onclick = e => { if(e.target === wrap) closeSummary(); };
+  document.body.appendChild(wrap);
+  const r = await api("/api/summary?id=" + encodeURIComponent(id));
+  if(!r.ok){
+    body.innerHTML = "";
+    const e2 = el("div","err"); e2.style.whiteSpace="pre-wrap";
+    e2.textContent = (r.why || "No summary.") + (r.hint ? "\n" + r.hint : "");
+    body.appendChild(e2); return;
+  }
+  body.innerHTML = mdToHtml(r.markdown);
+}
+document.addEventListener("keydown", e => { if(e.key === "Escape") closeSummary(); });
+
+// The archive only ever grows, so it pages. Built once; Restore redraws in place and
+// keeps your page (clamped, if restoring emptied the last one).
+let APG = null;
+function archPager(){
+  if(APG) return APG;
+  APG = mtPager("archive", draw);
+  const box = $("#sessions");
+  box.parentNode.insertBefore(APG.mount(), box);
+  box.parentNode.insertBefore(APG.mount(), box.nextSibling);
+  return APG;
+}
+
+async function draw(){
+  const pg = archPager();
+  const box = $("#sessions");
+  const r = await api("/api/sessions?archived=1");
+  box.innerHTML = "";
+  if(!r.sessions.length){
+    pg.setTotal(0);
+    box.appendChild(el("div","empty",
+      "Nothing archived yet. Archive a meeting once it is summarised and its actions are tracked."));
+    return;
+  }
+  pg.slice(r.sessions).forEach(s => {
+    const row = el("div","row");
+    const when = el("div","when");
+    when.appendChild(el("b", null, s.day || (s.id||"").slice(0,10)));
+    if(s.started) when.appendChild(el("span", null, s.started));
+    row.appendChild(when);
+    const mid = el("div"); mid.style.minWidth="0";
+    mid.appendChild(el("div","name", s.title));
+    mid.appendChild(el("div","sub", s.duration + "  ·  " + s.voices + " voices" +
+      (s.mic? "  ·  "+s.mic : "")));
+    row.appendChild(mid);
+    const right = el("div","right");
+    if(s.customer) right.appendChild(el("span","tag cust", s.customer));
+    if(s.summarized) right.appendChild(el("span","tag done","summarized"));
+    if(s.tracked) right.appendChild(el("span","tag track", s.tracked + " tracked"));
+    if(s.summarized){
+      const sm = el("button",null,"Summary");
+      sm.onclick = () => showSummary(s.id, s.title);
+      right.appendChild(sm);
+    }
+    const rv = el("button",null,"Review");
+    rv.onclick = () => { location.href = "/review?session=" + encodeURIComponent(s.id); };
+    right.appendChild(rv);
+    // Archiving is a filing decision, never a deletion — so it has to be undoable from
+    // here, in one click, without going near the filesystem.
+    const un = el("button",null,"Restore");
+    un.onclick = async () => {
+      un.disabled = true;
+      const res = await api("/api/archive",{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({session:s.id, archived:false})});
+      if(!res.ok){ un.disabled=false; alert(res.why||"could not restore"); return; }
+      draw();
+    };
+    right.appendChild(un);
+    row.appendChild(right);
+    box.appendChild(row);
+  });
+}
+draw();
+</script>
+</body>
+</html>

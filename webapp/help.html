@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mt — help</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<!-- The help page. Recipes and shortcuts are written here because they are judgement,
+     not data; the command reference and the thresholds are fetched from /api/help,
+     which reads mt's real argparse parser and the live config.json. Never hand-copy a
+     flag into this file - it will be wrong within a month and this is the page that
+     gets believed. Behaviour lives in help.js. -->
+<div class="wrap">
+  <header>
+    <h1>mt <span>· help</span></h1>
+    <a class="nav" href="/">&larr; meetings</a>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <button class="on" data-tab="recipes">How do I…</button>
+    <button data-tab="voices">Fixing voices</button>
+    <button data-tab="cues">Vocal cues &amp; awards</button>
+    <button data-tab="keys">Shortcuts</button>
+    <button data-tab="cli">Every command</button>
+    <button data-tab="numbers">Numbers &amp; paths</button>
+    <button data-tab="hygiene">Hygiene &amp; proposals</button>
+  </div>
+
+  <div id="pane"><div class="empty">loading…</div></div>
+</div>
+
+<script src="/static/help.js"></script>
+<script src="/static/nav.js"></script>
+</body>
+</html>

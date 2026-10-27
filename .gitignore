@@ -1,0 +1,33 @@
+# --- Per-install state: every user has their own. Never commit.
+# live recording/pass state and logs
+run/
+# personal config (owner, vocabulary prompt, mic priority); defaults live in mt.py
+config.json
+# mic/speaker picks remembered per desk (audioprefs.py)
+audio_prefs.json
+# assistant memory proposals
+hygiene/
+*.bak*
+
+# --- Biometric data: never in the code repo. Shared voiceprints, if ever, get their own
+# access-controlled store (see README.md, "Voiceprints").
+voiceprints/
+# embeds real meeting audio
+voice-lineup.html
+
+# --- Rebuilt by make.sh on every machine
+# downloaded from upstream at pinned URLs; ~800 MB, single files exceed git's 100 MB limit
+models/
+# python venv hardcodes absolute paths of the machine it was made on
+lib/venv/
+# Swift binaries are compiled locally so macOS ties permissions to this machine's build
+build/
+
+# --- Noise
+# git worktrees / assistant scratch
+.claude/
+__pycache__/
+*.pyc
+.DS_Store
+*.part
+jira_fields.json
