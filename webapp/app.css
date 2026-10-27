@@ -148,6 +148,8 @@
   .row .name{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .row .sub{font-family:var(--m);font-size:11.5px;color:var(--ink-3)}
   .row .right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .row .tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .row .tags:empty{display:none}
   .tag{font-family:var(--m);font-size:10.5px;padding:2px 7px;border-radius:5px;background:var(--surface-2);color:var(--ink-2)}
   .tag.cust{background:var(--accent-soft);color:var(--accent)}
   .tag.ok{background:var(--ok-soft);color:var(--ok)}

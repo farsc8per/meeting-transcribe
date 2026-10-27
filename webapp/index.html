@@ -606,22 +606,26 @@ async function drawSessions(){
     mid.appendChild(el("div","name", s.title));
     mid.appendChild(el("div","sub", s.duration + "  ·  " + s.voices + " voices" +
       (s.mic? "  ·  "+s.mic : "")));
+    // Tags sit under the title, not beside the buttons: the title gets the width back
+    // and the tags read as facts about the meeting (the owner picked this, Oct 27).
+    const tags = el("div","tags");
+    mid.appendChild(tags);
     row.appendChild(mid);
     const right = el("div","right");
-    if(s.customer) right.appendChild(el("span","tag cust", s.customer));
+    if(s.customer) tags.appendChild(el("span","tag cust", s.customer));
     const rvTag = el("span","tag " + (s.needs_review? "todo":"ok"),
       s.needs_review ? s.needs_review+" to review" : "reviewed");
     // Strong voiceprint matches don't wait on a Confirm, so they never count as "to review".
     if(s.matched) rvTag.title = s.matched + " voice" + (s.matched===1?"":"s")
       + " named by a strong voiceprint match — Confirm is optional";
-    right.appendChild(rvTag);
-    if(s.handed_off && !s.summarized) right.appendChild(el("span","tag ok","handed off"));
+    tags.appendChild(rvTag);
+    if(s.handed_off && !s.summarized) tags.appendChild(el("span","tag ok","handed off"));
     // "summarised" supersedes "handed off" — handing off is the request, the summary is
     // the thing it asked for, and showing both just makes the row longer.
-    if(s.summarized) right.appendChild(el("span","tag done","summarized"));
+    if(s.summarized) tags.appendChild(el("span","tag done","summarized"));
     // Only ever a positive count. Plenty of meetings legitimately raise no action items,
     // so the absence of this tag must never read as "you forgot something".
-    if(s.tracked) right.appendChild(el("span","tag track", s.tracked + " tracked"));
+    if(s.tracked) tags.appendChild(el("span","tag track", s.tracked + " tracked"));
 
     if(s.summarized){
       const sm = el("button",null,"Summary");

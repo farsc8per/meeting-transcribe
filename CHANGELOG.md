@@ -7,6 +7,15 @@ it for real meetings for a week.
 
 ## [Unreleased]
 
+## [0.7.7] — 2026-10-27
+
+**After updating: restart `mt web`.** No rebuild needed.
+
+- **Meeting rows are calmer.** On the Meetings and Archive pages the tags (customer,
+  to review, summarized, tracked, text only) sit on their own line under the title instead
+  of beside the buttons, so long titles show in full and the details line stops wrapping.
+  A meeting with no tags keeps a two-line row.
+
 ## [0.7.6] — 2026-10-27
 
 **After updating: restart `mt web`.** No rebuild needed.

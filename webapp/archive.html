@@ -155,16 +155,19 @@ function render(){
     mid.appendChild(el("div","name", s.title));
     mid.appendChild(el("div","sub", s.duration + "  ·  " + s.voices + " voices" +
       (s.mic? "  ·  "+s.mic : "") + (sz ? "  ·  " + mtBytes(sz.total) : "")));
+    // Under the title, as on the Meetings page.
+    const tags = el("div","tags");
+    mid.appendChild(tags);
     if(Q && HITS[s.id]){
       // search.py escapes the text first and only adds <mark>; same contract as search.js.
       const sn = el("div","snip"); sn.innerHTML = HITS[s.id]; mid.appendChild(sn);
     }
     row.appendChild(mid);
     const right = el("div","right");
-    if(s.customer) right.appendChild(el("span","tag cust", s.customer));
-    if(s.audio_removed) right.appendChild(el("span","tag gone","text only"));
-    if(s.summarized) right.appendChild(el("span","tag done","summarized"));
-    if(s.tracked) right.appendChild(el("span","tag track", s.tracked + " tracked"));
+    if(s.customer) tags.appendChild(el("span","tag cust", s.customer));
+    if(s.audio_removed) tags.appendChild(el("span","tag gone","text only"));
+    if(s.summarized) tags.appendChild(el("span","tag done","summarized"));
+    if(s.tracked) tags.appendChild(el("span","tag track", s.tracked + " tracked"));
     if(s.summarized){
       const sm = el("button",null,"Summary");
       sm.onclick = () => showSummary(s.id, s.title);
