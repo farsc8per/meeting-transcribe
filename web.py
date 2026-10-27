@@ -564,6 +564,9 @@ def session_summary(d: Path, tracked: dict[str, int] | None = None) -> dict:
         # Shown only as a positive count, never as a missing-something warning.
         "tracked": (tracked or {}).get(d.name, 0),
         "archived": (d / "archived.json").exists(),
+        "duration_sec": meta.get("duration") or 0,
+        "lines": len(doc.get("timeline") or []),
+        "audio_removed": (d / "audio_removed.json").exists(),
     }
 
 
@@ -1511,6 +1514,9 @@ def start_reprocess(body: dict) -> dict:
     mode = body.get("mode")
     if mode not in REPROCESS_MODES:
         return {"ok": False, "why": f"unknown mode {mode!r}"}
+    if (d / "audio_removed.json").exists():
+        return {"ok": False, "why": "this meeting's audio was removed — restore it from the "
+                                    "trash on the Archive page to re-process"}
     # A pass competes with a live recording for the GPU, and on Oct 7 that contention is
     # what made the live transcript fall minutes behind. The recording comes first.
     if MT.active_session() is not None:
@@ -1650,6 +1656,7 @@ def session_detail(sid: str) -> dict:
             "title": meta.get("title") or d.name, "duration": meta.get("duration") or 0,
             "durationText": MT.hhmmss(meta.get("duration")), "mic": meta.get("mic") or "",
             "customer": meta.get("customer") or "", "tracks": tracks,
+            "audio_removed": _audio_removed(d),
             "tracks_used": meta.get("tracks_used")
                            or sorted({e.get("track", "system") for e in tl}),
             "track_check": _track_check(d), "reprocess": reprocess_status(d),
@@ -1715,6 +1722,9 @@ def cues_analyze(p: dict) -> dict:
         return {"ok": False, "why": "no such session"}
     if (_cue_job(sid) or {}).get("state") == "running":
         return {"ok": True, "note": "already measuring"}
+    if (d / "audio_removed.json").exists():
+        return {"ok": False, "why": "this meeting's audio was removed, so there is nothing "
+                                    "to measure"}
     if running().get("recording"):
         return {"ok": False, "why": "A recording is running. Vocal cues wait until it ends, "
                                     "so they can never slow the live transcript."}
@@ -2638,7 +2648,224 @@ def set_archived(p: dict) -> dict:
         "session": d.name, "path": rel,
         "summarized": (d / "summary.md").exists(),
     }, indent=2) + "\n")
-    return {"ok": True, "archived": True}
+    freed = 0
+    if MT.config().get("trim_on_archive", True) and not _is_busy(d, _live_names()):
+        try:
+            freed = _storage().trim(d)
+        except Exception:
+            freed = 0                       # archiving never fails over housekeeping
+    return {"ok": True, "archived": True, "freed": freed}
+
+
+# ── storage: what each meeting takes, and giving it back ─────────────────────
+# storage.py owns the files; this part only decides what is busy and which sessions a
+# request names. Lazy import, same posture as search and contacts: a broken storage.py
+# must never stop the server from starting a recording.
+
+def _storage():
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import storage as S
+    return S
+
+
+def _audio_removed(d: Path) -> dict | None:
+    try:
+        return json.loads((d / "audio_removed.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _live_names() -> set[str]:
+    """Sessions being written right now: the recording, and every pass in flight."""
+    out = set()
+    try:
+        r = running()
+        if r.get("session"):
+            out.add(r["session"])
+        if (r.get("stuck_recorder") or {}).get("session"):
+            out.add(r["stuck_recorder"]["session"])
+    except Exception:
+        live = MT.active_session()           # can't tell — assume the live one is busy
+        if live is not None:
+            out.add(live.name)
+    try:
+        out |= {p["session"] for p in processing() if p.get("session")}
+    except Exception:
+        pass
+    return out
+
+
+def _is_busy(d: Path, live: set[str]) -> bool:
+    if d.name in live:
+        return True
+    st = reprocess_status(d)
+    if st and st.get("running"):
+        return True
+    return (_cue_job(d.name) or {}).get("state") == "running"
+
+
+def _storage_rows() -> tuple[list[dict], dict[str, Path]]:
+    S = _storage()
+    tracked = tracked_counts()
+    live = _live_names()
+    rows, dirs = [], {}
+    for d in existing_session_dirs():
+        s = session_summary(d, tracked)
+        if not s:
+            continue
+        s["busy"] = _is_busy(d, live)
+        s["bytes"] = S.usage(d)
+        rows.append(s)
+        dirs[s["id"]] = d
+    rows.sort(key=lambda s: s.get("sort_key") or s.get("id") or "", reverse=True)
+    return rows, dirs
+
+
+def storage_report() -> dict:
+    """GET /api/storage — sizes, suggestions and the trash, in one read."""
+    S = _storage()
+    cfg = MT.config()
+    try:
+        S.purge_old(float(cfg.get("trash_days", 7)))
+    except Exception:
+        pass
+    rows, _ = _storage_rows()
+    keep_days = float(cfg.get("audio_keep_days", 60))
+    tot = {k: sum(r["bytes"][k] for r in rows)
+           for k in ("rebuildable", "audio", "text", "other", "total")}
+    tests, old = [], []
+    for r in rows:
+        why = S.looks_like_test(r)
+        if why:
+            tests.append({**_slim(r), "why": why})
+        elif S.old_audio(r, keep_days):
+            old.append(_slim(r))
+    trash = S.trash_list()
+    try:
+        du = shutil.disk_usage(MT.WORKSPACE)
+        disk = {"free": du.free, "total": du.total}
+    except OSError:
+        disk = None
+    free_now = [r for r in rows if r["bytes"]["rebuildable"] and not r["busy"]]
+    return {"ok": True, "meetings": len(rows), "totals": tot, "disk": disk,
+            "sizes": {r["id"]: {"total": r["bytes"]["total"], "audio": r["bytes"]["audio"],
+                                "audio_removed": bool(r["bytes"]["audio_removed"])}
+                      for r in rows},
+            "rebuildable": {"bytes": sum(r["bytes"]["rebuildable"] for r in free_now),
+                            "meetings": len(free_now)},
+            "tests": tests, "old_audio": old, "audio_keep_days": keep_days,
+            "trash": trash, "trash_bytes": sum(t.get("bytes") or 0 for t in trash),
+            "trash_days": cfg.get("trash_days", 7)}
+
+
+def _slim(r: dict) -> dict:
+    out = {k: r.get(k) for k in ("id", "title", "day", "duration", "customer",
+                                 "archived", "summarized", "needs_review")}
+    out.update(bytes=r["bytes"]["total"], audio=r["bytes"]["audio"])
+    return out
+
+
+def storage_plan(sid: str) -> dict:
+    """GET /api/storage/plan?id= — what each action would do to one meeting."""
+    d = next((x for x in existing_session_dirs() if x.name == sid), None)
+    if d is None:
+        return {"ok": False, "why": "no such session"}
+    s = session_summary(d, tracked_counts())
+    return {"ok": True, "id": sid, "title": s.get("title") or sid,
+            "trash_days": MT.config().get("trash_days", 7),
+            **_storage().plan(d, s, _is_busy(d, _live_names()))}
+
+
+STORAGE_ACTIONS = ("trim", "remove_audio", "delete")
+STORAGE_MAX = 500          # one request, one page's worth of sessions at most
+
+
+def storage_apply(body: dict) -> dict:
+    """POST /api/storage/apply {action, sessions: [...] | all: true}
+
+    Every session is re-checked here against the same plan() the page showed, so a stale
+    page can't delete a meeting that has since gained action items or started a pass.
+    """
+    S = _storage()
+    b = body if isinstance(body, dict) else {}
+    action = b.get("action")
+    if action not in STORAGE_ACTIONS:
+        return {"ok": False, "why": f"unknown action {action!r}"}
+    rows, dirs = _storage_rows()
+    if b.get("all") is True:
+        if action != "trim":
+            return {"ok": False, "why": "only freeing working files applies to every meeting"}
+        ids = list(dirs)
+    else:
+        ids = b.get("sessions") or ([b["session"]] if b.get("session") else [])
+        if not isinstance(ids, list) or not all(isinstance(x, str) for x in ids):
+            return {"ok": False, "why": "sessions must be a list of ids"}
+        ids = ids[:STORAGE_MAX]
+    by_id = {r["id"]: r for r in rows}
+    done, refused, freed, trashed = [], [], 0, 0
+    for sid in ids:
+        d, r = dirs.get(sid), by_id.get(sid)
+        if d is None:
+            refused.append({"id": sid, "why": "no such session"})
+            continue
+        pl = S.plan(d, r, r["busy"])[action]
+        if not pl["ok"]:
+            if not (b.get("all") and pl["why"] == "nothing to free"):
+                refused.append({"id": sid, "why": pl["why"]})
+            continue
+        try:
+            if action == "trim":
+                freed += S.trim(d)
+                done.append(sid)
+                continue
+            fn = S.remove_audio if action == "remove_audio" else S.delete_session
+            res = fn(d, r.get("title") or sid)
+        except Exception as e:
+            refused.append({"id": sid, "why": f"{type(e).__name__}: {e}"[:200]})
+            continue
+        if res.get("ok"):
+            done.append(sid)
+            freed += res.get("freed") or 0
+            trashed += res.get("trashed") or 0
+        else:
+            refused.append({"id": sid, "why": res.get("why")})
+    if action == "delete" and done:
+        _reindex_later()
+    return {"ok": bool(done) or not refused, "done": done, "refused": refused,
+            "freed": freed, "trashed": trashed}
+
+
+def storage_trash(body: dict) -> dict:
+    """POST /api/storage/trash {op: restore|empty, entry?}"""
+    S = _storage()
+    b = body if isinstance(body, dict) else {}
+    op, eid = b.get("op"), b.get("entry")
+    if op == "restore":
+        r = S.restore(str(eid or ""))
+        if r.get("ok"):
+            _reindex_later(r.get("path"))
+        return r
+    if op == "empty":
+        return S.empty(str(eid) if eid else None)
+    return {"ok": False, "why": f"unknown op {op!r}"}
+
+
+def _reindex_later(session_path: str | None = None) -> None:
+    """Keep search in step without making the click wait. A full walk drops rows for
+    files that are gone; index_session puts a restored meeting back."""
+    def go():
+        try:
+            if str(HERE) not in sys.path:
+                sys.path.insert(0, str(HERE))
+            import search as SEARCH
+            if session_path:
+                SEARCH.index_session(session_path)
+            else:
+                SEARCH.index_all()
+        except Exception:
+            pass
+    threading.Thread(target=go, daemon=True).start()
 
 
 def confirm_speaker(p: dict) -> dict:
@@ -4103,6 +4330,10 @@ class App(BaseHTTPRequestHandler):
                                            for r in retired_prints()]})
         if path == "/api/detect":
             return self._json(detect_meeting())
+        if path == "/api/storage":
+            return self._json(storage_report())
+        if path == "/api/storage/plan":
+            return self._json(storage_plan((q.get("id") or [""])[0]))
         if path == "/api/audio":
             sid = (q.get("session") or [""])[0]
             track = (q.get("track") or ["system"])[0]
@@ -4231,6 +4462,10 @@ class App(BaseHTTPRequestHandler):
             return self._json(rename_voiceprint(body))
         if u.path == "/api/archive":
             return self._json(set_archived(body))
+        if u.path == "/api/storage/apply":
+            return self._json(storage_apply(body))
+        if u.path == "/api/storage/trash":
+            return self._json(storage_trash(body))
         return self._send(404, b"not found", "text/plain")
 
 

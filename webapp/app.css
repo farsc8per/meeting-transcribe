@@ -1013,3 +1013,44 @@
   .withadd{display:flex;gap:6px}
   .withadd input{flex:1;font:inherit;font-size:13px;padding:5px 7px;border:1px solid var(--line-2);border-radius:6px;background:var(--surface);color:var(--ink)}
   .pws-with{font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* Free up space (storage.js) and the archive's storage panel. */
+  .fsbody{padding:14px 22px 0;font-size:13.5px}
+  .fsuse{font-family:var(--m);font-size:12px;color:var(--ink-3);margin-bottom:12px}
+  .fsopts{display:flex;flex-direction:column;gap:8px}
+  .fsopt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);
+         border-radius:8px;cursor:pointer}
+  .fsopt:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+  .fsopt.off{cursor:default;opacity:.75}
+  .fsopt input{margin-top:3px;accent-color:var(--accent)}
+  .fsl{display:flex;gap:10px;align-items:baseline}
+  .fsb{font-family:var(--m);font-size:12px;color:var(--ink-3)}
+  .fsw{color:var(--ink-2);font-size:13px;margin-top:2px}
+  .fsno{color:var(--ink-3);font-size:12.5px;margin-top:4px;font-style:italic}
+  .fswarn{color:var(--warn);font-size:12.5px;margin-top:4px}
+  .fsnote{color:var(--ink-3);font-size:12.5px;margin-top:12px}
+  .fsfoot{display:flex;align-items:center;gap:10px;margin-top:14px}
+  .fsmsg{color:var(--ink-3);font-size:12.5px;margin-right:auto}
+  .tag.gone{background:var(--warn-soft);color:var(--warn)}
+  .archq{display:flex;gap:10px;align-items:center;margin-top:18px}
+  .archq input[type=text]{flex:1;min-width:0}
+  .archq .cnt{font-family:var(--m);font-size:12px;color:var(--ink-3);white-space:nowrap}
+  .row .snip{font-size:12.5px;color:var(--ink-2);margin-top:3px;overflow:hidden;
+             text-overflow:ellipsis;white-space:nowrap}
+  .row .snip mark{background:var(--warn-soft);color:var(--ink);font-weight:600;border-radius:3px;padding:0 2px}
+  details.stor{margin-top:16px}
+  details.stor > summary{cursor:pointer;font-size:13.5px;color:var(--ink-2)}
+  details.stor > summary b{color:var(--ink)}
+  .stsec{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+  .stsec .sth{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .stsec .sth b{font-size:13.5px}
+  .stsec .sth .fsb{margin-right:auto}
+  .stor .stw{color:var(--ink-3);font-size:12.5px;margin-top:3px}
+  .stlist{display:flex;flex-direction:column;gap:4px;margin-top:8px;max-height:260px;overflow:auto}
+  .stitem{display:flex;gap:9px;align-items:center;font-size:13px;padding:3px 2px}
+  .stitem input{accent-color:var(--accent)}
+  .stitem .d{font-family:var(--m);font-size:11.5px;color:var(--ink-3);min-width:84px}
+  .stitem .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stitem .s{margin-left:auto;font-family:var(--m);font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+  .stitem button{font-size:12px;padding:2px 9px}
+  .stdone{color:var(--ok);font-size:12.5px;margin-top:6px}

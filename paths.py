@@ -57,6 +57,16 @@ CUSTOMERS = WORKSPACE / "Customers"
 TEAM_MEETINGS = WORKSPACE / "Team" / "meetings"
 SEARCH_DB = WORKSPACE / "DB" / "search.db"
 
+# Where removed audio and deleted meetings wait before they are purged (storage.py).
+# Outside the workspace on purpose: a backup that mirrors the workspace copies a delete
+# up without keeping the file, so this folder is the only undo.
+if os.environ.get("MT_TRASH"):
+    TRASH, TRASH_FROM = _expand(os.environ["MT_TRASH"]), "$MT_TRASH"
+elif _CFG.get("trash_dir"):
+    TRASH, TRASH_FROM = _expand(_CFG["trash_dir"]), "config.json"
+else:
+    TRASH, TRASH_FROM = Path.home() / "mt-data" / "trash", "default"
+
 
 def _claude_memory_dir(ws: Path) -> Path:
     """Claude Code's auto-memory folder for a project rooted at `ws`.
@@ -145,6 +155,7 @@ def summary() -> list[tuple[str, str, str]]:
     """(label, path, where-it-came-from) rows for `mt doctor`."""
     return [("workspace", str(WORKSPACE), WORKSPACE_FROM),
             ("database", str(DB), DB_FROM),
+            ("trash", str(TRASH), TRASH_FROM),
             ("memory", str(MEMORY_DIR) if MEMORY_DIR else "off",
              ("present" if MEMORY_DIR.is_dir() else "absent") if MEMORY_DIR
              else "optional; \"memory_dir\" in config.json")]

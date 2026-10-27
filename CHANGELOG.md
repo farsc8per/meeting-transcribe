@@ -7,10 +7,34 @@ it for real meetings for a week.
 
 ## [Unreleased]
 
+## [0.7.5] — 2026-10-27
+
+**After updating: restart `mt web`.** No rebuild needed.
+
+- **Working files go as soon as a call is processed.** When the queue finishes a meeting
+  cleanly, it deletes that meeting's `work/*.wav` (the 16 kHz copies, ~127 MB a meeting)
+  if a FLAC is there to rebuild them from. The FLAC stays, so you can still listen,
+  re-process, measure vocal cues or teach mt a voice until you remove the audio yourself.
+  New config `trim_after_pass` (default on; `false` = wait for archive).
+- **Free up space.** Every meeting row has a **Delete…** button with three levels: free the
+  working files (nothing lost), remove the audio but keep the transcript, summary and
+  names, or delete the meeting. The Archive page gains a **Storage** panel: how much each
+  kind takes, a one-click "free working files" (13 of 19 GB on the first real install),
+  suggested test recordings, suggested old audio, and the trash.
+- **A trash, outside the workspace.** Removed audio and deleted meetings wait there
+  `trash_days` (7) and can be restored from the Archive page. Files mt did not write are
+  never moved; a meeting that action items point at can't be deleted.
+- **Archiving drops the working files** (`trim_on_archive`, default on), so they no longer
+  pile up.
+- **Archive search.** Filter the archive by title, customer or date, or by anything said.
+- `mt enroll`, re-process and vocal cues refuse on a meeting whose audio was removed; the
+  Review page says so where the player was.
+- New config: `trash_days`, `audio_keep_days`, `trim_on_archive`, `trash_dir`
+  (`$MT_TRASH`). `mt doctor` shows the trash folder.
+
 ## [0.7.4] — 2026-10-27
 
-**After updating: run `./make.sh` (two helpers changed) and restart `mt web`. macOS will ask once
-more for Calendar access — allow it.**
+**After updating: run `./make.sh` (two helpers changed) and restart `mt web`.**
 
 - **Weekly: your Jira option cache moved to your workspace.** `jira_fields.json` now lives at
   `<workspace>/DB/jira_fields.json` (it is your company's data, not part of mt). Reason-code
@@ -20,8 +44,9 @@ more for Calendar access — allow it.**
 - **Call detection learns your organisation from config.** Teams titles a meeting window
   `<meeting> | <your org>`; mt now passes `| <org>` for each of your `internal_domains` to the
   screen watcher (`mtwatch --live-title`), instead of one built-in name.
-- **Calendar helper has a neutral app id** (`local.mt.mtcal`), hence the one-time permission
-  prompt.
+- **Calendar helper has a neutral app id** (`local.mt.mtcal`). No new permission prompt: macOS
+  keys Calendar access to the helper's signature and the terminal that runs it, and neither
+  changed. (The 0.7.4 release notes said it would ask again; it does not.)
 - **MIT license.** `LICENSE` at the top level; README says the downloaded models keep their own
   licenses.
 - **Stop frees the machine; the work after a call waits its turn.** Stop used to run the

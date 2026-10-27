@@ -87,6 +87,18 @@ DEFAULTS = {
     # Below this, a cluster disagrees with itself and is treated as multiple speakers.
     # Measured: single-speaker clusters 0.78-0.97, confirmed mixtures 0.36 and 0.07.
     "min_self_similarity": 0.60,
+    # Storage (storage.py, the Archive page). Removed audio and deleted meetings sit in
+    # the trash this many days before they are purged.
+    "trash_days": 7,
+    # Archived + written-up meetings older than this are OFFERED for audio removal.
+    # Never automatic.
+    "audio_keep_days": 60,
+    # Archiving also drops work/*.wav, the 16 kHz copies only the pass reads (rebuilt
+    # from the FLAC on a re-process). ~127 MB a meeting.
+    "trim_on_archive": True,
+    # The queue drops work/*.wav as soon as a meeting's pass finishes cleanly, when a FLAC
+    # is there to rebuild them from. false = keep them until the meeting is archived.
+    "trim_after_pass": True,
 }
 
 
@@ -3440,6 +3452,11 @@ def cmd_enroll(a):
     audio = next((session / f"system{x}" for x in (".flac", ".wav")
                   if (session / f"system{x}").exists()), None)
     sim = None
+    # No audio means no re-measure, and the stored mixed flag alone is not trusted.
+    if spans and audio is None and not key.startswith("mic"):
+        fail(f"{key}: this meeting's audio was removed, so the voice can't be checked for a "
+             f"second speaker before enrolling.\n    Enrol from a meeting that still has "
+             f"its audio (or restore it from the trash on the Archive page).")
     if spans and audio is not None and not key.startswith("mic"):
         w16 = session / "work" / "enrolcheck.16k.wav"
         try:

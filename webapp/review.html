@@ -336,6 +336,7 @@ function setTrack(track){
 }
 function playAt(t, track, play){
   const a=$("#au");
+  if(D && D.audio_removed) return;
   if(!(D && D.tracks && D.tracks.includes(track))) track = auTrack || "system";
   const go = () => { a.currentTime = t; if(play !== false) a.play(); };
   if(track !== auTrack){
@@ -351,7 +352,12 @@ async function load(){
   if(!D.ok){ $("#tx").textContent = D.why || "could not load"; return; }
   $("#title").textContent = D.title;
   $("#meta").textContent = [D.durationText, D.customer, D.mic].filter(Boolean).join("  ·  ");
-  if(!auTrack) setTrack(D.tracks.includes("system") ? "system" : (D.tracks[0]||"system"));
+  if(D.audio_removed){
+    // Nothing to play: say so where the player was, rather than a player that 404s.
+    $("#au").hidden = true;
+    $("#autrack").textContent = "audio removed " + (D.audio_removed.removed_at||"").slice(0,10) +
+      " — transcript kept  ·  restore it from the trash on the Archive page";
+  } else if(!auTrack) setTrack(D.tracks.includes("system") ? "system" : (D.tracks[0]||"system"));
   drawFlash(); drawCaptureHealth(); drawTracks(); drawLink(); drawRail(); drawTx(); drawOverrides();
   drawHandoff(); drawVoiceprints();
   loadCues();      // its own request: the page never waits on it

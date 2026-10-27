@@ -10,12 +10,22 @@
 <div class="wrap">
   <h1>Archive <span>— meetings you are done with</span></h1>
 
+  <div class="archq">
+    <input type="text" id="q" autocomplete="off" spellcheck="false"
+           placeholder="Search the archive — title, customer, date, or anything said">
+    <span class="cnt" id="qcnt"></span>
+  </div>
+
+  <details class="card stor" id="stor"><summary>Storage — measuring…</summary>
+    <div id="storbody"></div></details>
+
   <div class="linkbar"><h2>Archived</h2><a href="/">&larr; Back to meetings</a></div>
   <div id="sessions" class="rows"><div class="empty">loading…</div></div>
 </div>
 
 <script src="/static/pager.js"></script>
 <script src="/static/md.js"></script>
+<script src="/static/storage.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const api = (p, opts) => fetch(p, opts).then(r => r.json());
@@ -52,25 +62,90 @@ document.addEventListener("keydown", e => { if(e.key === "Escape") closeSummary(
 let APG = null;
 function archPager(){
   if(APG) return APG;
-  APG = mtPager("archive", draw);
+  APG = mtPager("archive", render);
   const box = $("#sessions");
   box.parentNode.insertBefore(APG.mount(), box);
   box.parentNode.insertBefore(APG.mount(), box.nextSibling);
   return APG;
 }
 
-async function draw(){
+let ALL = [];          // every archived session, newest first
+let SIZES = {};        // id → {total, audio, audio_removed}, once /api/storage answers
+let HITS = {};         // id → snippet, for the words in the box, from the full-text index
+let Q = "";
+let HITS_Q = null;     // the query HITS answers — null while the index is still being asked
+let STFLASH = "";      // what the last storage action did, shown once after the reload
+
+// ── search ───────────────────────────────────────────────────────────────────
+// Two halves. What the row shows (title, customer, date) filters as you type, right here.
+// What was SAID comes from the same index as the search on the front page, narrowed to
+// the meetings in this list — its snippet is shown under the row so you can see why a
+// meeting with an unrelated title turned up.
+function tokens(q){ return q.toLowerCase().split(/\s+/).filter(Boolean); }
+function rowMatches(s, toks){
+  const hay = [s.title, s.customer, s.day, s.id, s.mic].join(" ").toLowerCase();
+  return toks.every(t => hay.includes(t));
+}
+let qTimer = null, qSeq = 0;
+$("#q").addEventListener("input", () => {
+  Q = $("#q").value.trim();
+  HITS = {}; HITS_Q = null;
+  archPager().reset();
+  render();
+  clearTimeout(qTimer);
+  if(Q.length < 2) return;
+  qTimer = setTimeout(async () => {
+    const mine = ++qSeq;
+    const r = await api("/api/search?limit=100&q=" + encodeURIComponent(Q))
+                .catch(() => ({hits: []}));
+    if(mine !== qSeq) return;              // a newer keystroke already asked
+    const ids = new Set(ALL.map(s => s.id));
+    const h = {};
+    (r.hits || []).forEach(x => { if(x.session && ids.has(x.session) && !h[x.session])
+                                    h[x.session] = x.snippet || ""; });
+    HITS = h; HITS_Q = Q;
+    render();
+  }, 250);
+});
+$("#q").addEventListener("keydown", e => {
+  if(e.key === "Escape" && $("#q").value){ e.stopPropagation(); $("#q").value = "";
+    $("#q").dispatchEvent(new Event("input")); }
+});
+
+function shown(){
+  if(!Q) return ALL;
+  const toks = tokens(Q);
+  return ALL.filter(s => rowMatches(s, toks) || s.id in HITS);
+}
+
+// ── the list ─────────────────────────────────────────────────────────────────
+async function loadSessions(){
+  const r = await api("/api/sessions?archived=1");
+  ALL = r.sessions || [];
+  render();
+}
+
+function render(){
   const pg = archPager();
   const box = $("#sessions");
-  const r = await api("/api/sessions?archived=1");
   box.innerHTML = "";
-  if(!r.sessions.length){
+  const rows = shown();
+  $("#qcnt").textContent = Q ? rows.length + " of " + ALL.length : "";
+  if(!ALL.length){
     pg.setTotal(0);
     box.appendChild(el("div","empty",
       "Nothing archived yet. Archive a meeting once it is summarised and its actions are tracked."));
     return;
   }
-  pg.slice(r.sessions).forEach(s => {
+  if(!rows.length){
+    pg.setTotal(0);
+    box.appendChild(el("div","empty", Q.length >= 2 && HITS_Q !== Q
+      ? "No archived meeting matches “" + Q + "” — still checking what was said…"
+      : "No archived meeting matches “" + Q + "”."));
+    return;
+  }
+  pg.slice(rows).forEach(s => {
+    const sz = SIZES[s.id];
     const row = el("div","row");
     const when = el("div","when");
     when.appendChild(el("b", null, s.day || (s.id||"").slice(0,10)));
@@ -79,10 +154,15 @@ async function draw(){
     const mid = el("div"); mid.style.minWidth="0";
     mid.appendChild(el("div","name", s.title));
     mid.appendChild(el("div","sub", s.duration + "  ·  " + s.voices + " voices" +
-      (s.mic? "  ·  "+s.mic : "")));
+      (s.mic? "  ·  "+s.mic : "") + (sz ? "  ·  " + mtBytes(sz.total) : "")));
+    if(Q && HITS[s.id]){
+      // search.py escapes the text first and only adds <mark>; same contract as search.js.
+      const sn = el("div","snip"); sn.innerHTML = HITS[s.id]; mid.appendChild(sn);
+    }
     row.appendChild(mid);
     const right = el("div","right");
     if(s.customer) right.appendChild(el("span","tag cust", s.customer));
+    if(s.audio_removed) right.appendChild(el("span","tag gone","text only"));
     if(s.summarized) right.appendChild(el("span","tag done","summarized"));
     if(s.tracked) right.appendChild(el("span","tag track", s.tracked + " tracked"));
     if(s.summarized){
@@ -102,14 +182,191 @@ async function draw(){
         headers:{"Content-Type":"application/json"},
         body: JSON.stringify({session:s.id, archived:false})});
       if(!res.ok){ un.disabled=false; alert(res.why||"could not restore"); return; }
-      draw();
+      reload();
     };
     right.appendChild(un);
+    const del = el("button",null,"Delete…");
+    del.onclick = () => mtFreeSpace(s.id, reload);
+    right.appendChild(del);
     row.appendChild(right);
     box.appendChild(row);
   });
 }
-draw();
+
+// ── storage ──────────────────────────────────────────────────────────────────
+// Your open/closed choice is remembered. Until you have made one, the panel opens by
+// itself when there is something worth doing in it.
+let STOR_PREF = null;
+try { STOR_PREF = localStorage.getItem("mt.storOpen"); } catch(e){}
+if(STOR_PREF === "1") $("#stor").open = true;
+$("#stor").addEventListener("toggle", () => {
+  if(STOR_PREF === "auto"){ STOR_PREF = "seen"; return; }   // our open, not your choice
+  try { localStorage.setItem("mt.storOpen", $("#stor").open ? "1" : "0"); } catch(e){}
+});
+
+async function loadStorage(){
+  const r = await api("/api/storage").catch(e => ({ok:false, why:String(e)}));
+  const sum = $("#stor").querySelector("summary");
+  const body = $("#storbody");
+  body.innerHTML = "";
+  if(!r.ok){ sum.textContent = "Storage — unavailable"; body.appendChild(el("div","err", r.why||"")); return; }
+  SIZES = r.sizes || {};
+  render();
+  if(STOR_PREF === null && (r.rebuildable.bytes > 1e9 || r.tests.length)){
+    STOR_PREF = "auto"; $("#stor").open = true;
+  }
+  sum.textContent = "";
+  sum.append("Storage — ");
+  sum.appendChild(el("b", null, mtBytes(r.totals.total)));
+  sum.append(" in " + r.meetings + " meetings" +
+    (r.disk ? "  ·  " + mtBytes(r.disk.free) + " free on this Mac" : "") +
+    (r.rebuildable.bytes > 1e8 ? "  ·  " + mtBytes(r.rebuildable.bytes) +
+       " can be freed with nothing lost" : ""));
+
+  body.appendChild(el("div","stw", "Audio " + mtBytes(r.totals.audio) + "  ·  working files " +
+    mtBytes(r.totals.rebuildable) + "  ·  transcripts, summaries & notes " +
+    mtBytes(r.totals.text + r.totals.other) + "  ·  trash " + mtBytes(r.trash_bytes)));
+  if(STFLASH){ body.appendChild(el("div","stdone", STFLASH)); STFLASH = ""; }
+
+  // 1. Working files — the free win.
+  section(body, "Working files", r.rebuildable.bytes
+      ? mtBytes(r.rebuildable.bytes) + " in " + r.rebuildable.meetings + " meetings" : "none",
+    "The 16 kHz copies made while transcribing. Nothing is lost — re-processing rebuilds " +
+    "them. mt clears a meeting's copies once it finishes processing, and again on archive; " +
+    "what is left here is from before that.",
+    r.rebuildable.bytes ? {label: "Free " + mtBytes(r.rebuildable.bytes), go: async (msg) => {
+      const x = await mtStoragePost("/api/storage/apply", {action:"trim", all:true});
+      STFLASH = "Freed " + mtBytes(x.freed) + "." + refusedNote(x);
+    }} : null);
+
+  // 2. Test recordings — whole meetings, picked by hand.
+  if(r.tests.length) pickSection(body, "Looks like a test", r.tests,
+    "Short, empty, or named “test”, with no action items pointing at them. Tick the ones to delete.",
+    s => s.why + "  ·  " + mtBytes(s.bytes), "Delete selected", "delete",
+    n => "Delete " + n + " meeting" + (n===1?"":"s") + "? Everything mt made for " +
+         (n===1?"it":"them") + " moves to the trash for " + r.trash_days + " days.");
+
+  // 3. Old audio — the transcript has done its job.
+  if(r.old_audio.length) pickSection(body, "Audio older than " + r.audio_keep_days + " days",
+    r.old_audio,
+    "Archived meetings that are already summarised or handed off. Removing the audio keeps " +
+    "the transcript, summary and names; you lose playback and re-processing.",
+    s => mtBytes(s.audio) + " audio", "Remove audio from selected", "remove_audio",
+    n => "Remove the audio from " + n + " meeting" + (n===1?"":"s") + "? Transcripts and " +
+         "summaries stay. The audio waits in the trash for " + r.trash_days + " days.");
+
+  // 4. Trash.
+  const t = el("div","stsec");
+  const th = el("div","sth");
+  th.appendChild(el("b", null, "Trash"));
+  th.appendChild(el("span","fsb", r.trash.length ? r.trash.length + " item" +
+    (r.trash.length===1?"":"s") + "  ·  " + mtBytes(r.trash_bytes) : "empty"));
+  if(r.trash.length){
+    const em = el("button","stop","Empty trash now");
+    em.onclick = async () => {
+      if(!confirm("Permanently delete everything in the trash (" + mtBytes(r.trash_bytes) +
+                  ")? This cannot be undone.")) return;
+      em.disabled = true;
+      await mtStoragePost("/api/storage/trash", {op:"empty"});
+      reload();
+    };
+    th.appendChild(em);
+  }
+  t.appendChild(th);
+  t.appendChild(el("div","stw", "Removed audio and deleted meetings wait here " +
+    r.trash_days + " days, then they are deleted for good."));
+  if(r.trash.length){
+    const list = el("div","stlist");
+    r.trash.forEach(e => {
+      const it = el("div","stitem");
+      it.appendChild(el("span","d", (e.at||"").slice(0,10)));
+      it.appendChild(el("span","tag " + (e.kind === "audio" ? "gone" : ""),
+                        e.kind === "audio" ? "audio" : "meeting"));
+      it.appendChild(el("span","t", e.title || e.session));
+      it.appendChild(el("span","s", mtBytes(e.bytes)));
+      const rs = el("button",null,"Restore");
+      rs.onclick = async () => {
+        rs.disabled = true;
+        const x = await mtStoragePost("/api/storage/trash", {op:"restore", entry:e.id});
+        if(!x.ok){ rs.disabled = false; alert(x.why || "could not restore"); }
+        reload();
+      };
+      it.appendChild(rs);
+      list.appendChild(it);
+    });
+    t.appendChild(list);
+  }
+  body.appendChild(t);
+}
+
+function refusedNote(x){
+  return (x.refused && x.refused.length)
+    ? "  Skipped " + x.refused.length + ": " + x.refused.slice(0,3).map(r => r.why).join("; ")
+    : "";
+}
+
+function section(body, title, size, what, action){
+  const sec = el("div","stsec");
+  const h = el("div","sth");
+  h.appendChild(el("b", null, title));
+  h.appendChild(el("span","fsb", size));
+  const msg = el("div","stdone");
+  if(action){
+    const b = el("button","primary", action.label);
+    b.onclick = async () => { b.disabled = true; msg.textContent = "working…";
+      await action.go(msg); loadStorage(); };
+    h.appendChild(b);
+  }
+  sec.appendChild(h);
+  sec.appendChild(el("div","stw", what));
+  sec.appendChild(msg);
+  body.appendChild(sec);
+}
+
+function pickSection(body, title, items, what, detail, verb, action, ask){
+  const sec = el("div","stsec");
+  const h = el("div","sth");
+  h.appendChild(el("b", null, title));
+  h.appendChild(el("span","fsb", items.length + "  ·  " +
+    mtBytes(items.reduce((a, s) => a + (action === "delete" ? s.bytes : s.audio), 0))));
+  const all = el("button",null,"Select all");
+  const go = el("button","stop", verb); go.disabled = true;
+  h.appendChild(all); h.appendChild(go);
+  sec.appendChild(h);
+  sec.appendChild(el("div","stw", what));
+  const list = el("div","stlist");
+  const boxes = [];
+  items.forEach(s => {
+    const it = el("label","stitem");
+    const cb = el("input"); cb.type = "checkbox"; cb.value = s.id;
+    cb.onchange = () => { go.disabled = !boxes.some(b => b.checked); };
+    boxes.push(cb);
+    it.appendChild(cb);
+    it.appendChild(el("span","d", s.day || s.id.slice(0,10)));
+    it.appendChild(el("span","t", s.title));
+    it.appendChild(el("span","s", detail(s)));
+    list.appendChild(it);
+  });
+  all.onclick = () => { const on = !boxes.every(b => b.checked);
+    boxes.forEach(b => b.checked = on); go.disabled = !on; };
+  const msg = el("div","stdone");
+  go.onclick = async () => {
+    const ids = boxes.filter(b => b.checked).map(b => b.value);
+    if(!ids.length || !confirm(ask(ids.length))) return;
+    go.disabled = true; msg.textContent = "working…";
+    const x = await mtStoragePost("/api/storage/apply", {action, sessions: ids});
+    STFLASH = title + ": " + (x.done||[]).length + " done" +
+      (x.trashed ? ", " + mtBytes(x.trashed) + " moved to the trash" : "") + "." + refusedNote(x);
+    reload();
+  };
+  sec.appendChild(list);
+  sec.appendChild(msg);
+  body.appendChild(sec);
+}
+
+function reload(){ loadSessions(); loadStorage(); }
+loadSessions();
+loadStorage();
 </script>
 </body>
 </html>

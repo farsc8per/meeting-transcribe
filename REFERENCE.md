@@ -119,6 +119,11 @@ Defaults for everything. Per-meeting flags override these.
 | `queue_settle_sec` | `20` | After a recording ends, how long the queue waits before starting or resuming heavy work — the gap in which the next meeting usually gets started. |
 | `queue_busy_cpu` | `70` | A queued job does not start while CPU use (sampled over 2 s) is at or above this %, or while macOS reports *critical* (red) memory pressure — not yellow, which a 16 GB Mac with the usual browser and chat apps sits at with 40% free. **Process now** overrides it. A first setting; tune it from `run/queue/timings.jsonl`. |
 | `queue_meeting_hold_min` | `10` | A queued job does not start this many minutes before a calendar meeting (until 5 minutes after it began). A hint only: the calendar can be stale. |
+| `trash_days` | `7` | How long removed audio and deleted meetings wait in the trash before they are purged. See [Freeing space](#freeing-space). |
+| `audio_keep_days` | `60` | Archived, written-up meetings older than this are *offered* for audio removal on the Archive page. Never automatic. |
+| `trim_on_archive` | `true` | Archiving a meeting also deletes its `work/*.wav` (~127 MB a meeting, rebuilt from the FLAC on a re-process). |
+| `trim_after_pass` | `true` | The queue deletes a meeting's `work/*.wav` as soon as its pass finishes cleanly, when a `system.flac` or `mic.flac` is there to rebuild them from. A failed pass keeps them for the retry. `false` = wait for archive. |
+| `trash_dir` | `~/mt-data/trash` | Where the trash lives. Outside the workspace on purpose. `$MT_TRASH` overrides. |
 | `absorb_similarity` | `0.45` | A fragment this similar to a real speaker is folded into them; otherwise it goes to one shared "Unidentified voice" bucket. Never invents a name to explain a one-second fragment. |
 
 **Remembered picks (`audio_prefs.json`, per install, never committed).** Whenever you pick a
@@ -194,7 +199,8 @@ Screen parsing lives in `screen.py`: `view_of` (is this window a live call?), `c
 | `live_names.json` | **yes, if present** | Voices you named in the Room panel during the call: your picks plus an in-call voice sample per name (`livenames.py`). Read by the live loop each chunk, then used after the pass to pre-fill `speakers.json`. Voice-derived, same class as `work/*-spk*.npy`; never copied into `voiceprints/`. |
 | `tracks.json` | — | Do the two tracks hear the same audio? (`tracks.py`, measured from the audio before transcription, cached.) `separate` = normal desk call; `speakers` = the far side leaks into your mic; `same_room` = a room meeting where the Teams track carries everyone (it covers ≥85% of what the mic heard), so the transcript header and the review page offer the Teams track alone; `overlap` = much is on both tracks, but the mic holds speech the call audio doesn't (your own voice) — keep the mic, expect some doubled lines. |
 | `reprocess-backups/<stamp>/` | **yes** | The transcript and speaker map as they were before a review-page re-process. Names confirmed on the page don't carry over to a re-process; they are here. |
-| `work/` | no | Intermediates. Safe to delete; only makes a re-run slower. |
+| `audio_removed.json` | **yes, if present** | The audio was removed (Archive page → Delete… → Remove audio): when, which files, and the trash entry holding them. Re-process, vocal cues and `mt enroll` refuse while it is there. |
+| `work/` | no | Intermediates. Safe to delete; only makes a re-run slower. The Archive page frees the `*.wav` in here with one click. |
 
 **Disk footprint.** Measured Sep 14 2026 over 12 sessions: the permanent archive is the
 two flac tracks, ~48 MB per meeting. `work/` holds `system.16k.wav` + `mic.16k.wav`, the
@@ -206,8 +212,9 @@ of your workspace.
 Deleting them is surgical and cheap to undo: the expensive cached results in the same
 directory (`*.segments.json`, `*.speech.json`, `*-spk*.npy`) are only kilobytes and are
 what a re-run reuses. Losing the downmix costs one ffmpeg convert, not a re-diarize.
-
-    find ~/mt-data/Customers -path '*/work/*' -name '*.16k.wav' -delete
+Since 0.7.5 the queue drops them when a meeting's pass finishes (`trim_after_pass`);
+archiving drops any left (`trim_on_archive`), and the Archive page's Storage panel frees
+older ones in one click — see [Freeing space](#freeing-space).
 
 Never run it while a pass is in flight — the running session needs its own downmix. At
 ~50 meetings/month, keeping them costs ~8.7 GB/month against ~2.4 GB/month without.
@@ -319,6 +326,46 @@ the raw text *first* and only ever adds tags of its own, because summaries are d
 transcripts and transcripts contain whatever people said. Note it joins the lines of a
 paragraph with `<br>` rather than a space: strict markdown folds a single newline, but
 these summaries are written one line per fact and folding ran the header block together.
+
+### Freeing space
+
+The Archive page has a **Storage** panel, and every meeting row (on both lists) has a
+**Delete…** button. `storage.py` owns the files; `web.py` decides what is busy. Measured
+Oct 21 2026 over 115 meetings: 19 GB, of which 13 GB was `work/*.wav`, 5 GB FLAC audio
+and under 1 GB everything else.
+
+Three levels, by what they cost:
+
+| Action | What goes | What you lose | Undo |
+|---|---|---|---|
+| Free working files | `work/*.wav` | nothing — a re-process rebuilds them | not needed |
+| Remove audio | `system.*`, `mic.*` (+ working files) | playback, re-process, vocal cues, enrolling a voice from it | trash, `trash_days` |
+| Delete the meeting | every file mt made | everything | trash, `trash_days` |
+
+- **The trash is the undo.** A backup that mirrors the workspace copies a delete up without
+  keeping the file, so removed audio and deleted meetings move to `trash_dir` (outside the
+  workspace) and are purged after `trash_days`. Restore or empty it from the Storage panel.
+- **Files mt did not write are never touched.** A meeting folder holding your own notes or
+  attachments keeps them; delete moves only mt's files and leaves the folder if anything
+  else is in it. The dialog lists what stays.
+- **Refusals, re-checked on the server:** a meeting that is recording, processing,
+  re-processing or measuring cues can't be changed; a meeting that action items point at
+  (`action_items.source`) can't be deleted — remove its audio instead, so the transcript
+  they cite survives.
+- **Enrolling needs the audio.** `mt enroll` re-measures a cluster for a second voice every
+  time and never trusts the stored flag alone, so with the audio gone it refuses.
+- **Suggestions, never automatic:** *Looks like a test* = "test" in the name, under 90 s,
+  or nothing transcribed (never if action items point at it). *Audio older than
+  `audio_keep_days`* = archived and summarised or handed off.
+- Search drops a deleted meeting in the background (a full walk prunes missing files) and
+  re-indexes a restored one.
+
+### Archive search
+
+The box at the top of the Archive page filters by title, customer and date as you type,
+and from two characters also asks the full-text index (the same one as the front page),
+narrowed to archived meetings. A meeting found only by what was said shows the matching
+snippet under its title.
 
 ### Recurring meetings and the Record button
 

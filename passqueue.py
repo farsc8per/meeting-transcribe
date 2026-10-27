@@ -65,7 +65,8 @@ MEETING_GRACE_MIN = 5      # a calendar meeting nobody recorded stops holding wo
 # The user's call, Oct 21: 70% CPU or any memory pressure, "for now" — tune from timings.jsonl.
 # Sampled over two seconds rather than read off the 1-minute load average: the average
 # still carries the step that just finished, so the queue would keep deferring to itself.
-DEFAULTS = {"queue_settle_sec": 20, "queue_busy_cpu": 70, "queue_meeting_hold_min": 10}
+DEFAULTS = {"queue_settle_sec": 20, "queue_busy_cpu": 70, "queue_meeting_hold_min": 10,
+            "trim_after_pass": 1}
 
 JOB_ID = re.compile(r"[0-9]{8}-[0-9]{6}-[a-z0-9-]{1,80}")
 
@@ -574,6 +575,26 @@ class Worker:
         self._say(f"{jid}: finished rc={res.get('rc')}")
         if res.get("rc") == 0:
             _archive(jid)
+            self._trim(job)
+
+    def _trim(self, job: dict) -> None:
+        """After a clean pass, drop work/*.wav — the 16 kHz copies only the pass reads,
+        rebuilt from the FLAC if a re-process or vocal cues ever needs them (the owner, Oct
+        27: "after we are done with the wav the flac files seem to be all we need"). Only
+        when a FLAC is there to rebuild from; a failed job keeps them for its retry."""
+        if not setting("trim_after_pass"):
+            return
+        d = Path(job["session"])
+        if not any((d / f"{s}.flac").is_file() for s in ("system", "mic")):
+            return
+        try:
+            import storage
+            freed = storage.trim(d)
+        except Exception as e:
+            self._say(f"{job['id']}: could not drop the working files ({e})")
+            return
+        if freed:
+            self._say(f"{job['id']}: dropped working files, {freed / 1e6:.0f} MB freed")
 
 
 # ── inside the job: timings ──────────────────────────────────────────────────

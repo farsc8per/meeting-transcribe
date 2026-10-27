@@ -73,6 +73,7 @@
 
 <script src="/static/pager.js"></script>
 <script src="/static/md.js"></script>
+<script src="/static/storage.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const api = (p, opts) => fetch(p, opts).then(r => r.json());
@@ -638,6 +639,11 @@ async function drawSessions(){
       drawSessions();
     };
     right.appendChild(ar);
+    // Test recordings belong in the bin, not the archive. The dialog offers the lighter
+    // options first and says why any of them is off.
+    const del = el("button",null,"Delete…");
+    del.onclick = () => mtFreeSpace(s.id, drawSessions);
+    right.appendChild(del);
     row.appendChild(right);
     box.appendChild(row);
   });
