@@ -7,6 +7,22 @@ it for real meetings for a week.
 
 ## [Unreleased]
 
+## [0.7.8] — 2026-10-27
+
+**After updating: restart `mt web`.** No rebuild needed. This is the last update that needs
+the assistant prompt — from here on, use the button.
+
+- **Updates without a prompt.** Once a day mt checks for a new release; when there is one, the
+  top of every page shows **vX.Y.Z available** beside the version. Click it for what's new and
+  **Update now**: mt switches to the new release, rebuilds only if it has to, runs `mt doctor`,
+  goes back to the old version if either fails, and restarts itself in the same terminal.
+  Open pages reload themselves on the new version (no new tab); a page with something open
+  that might hold typing shows a Reload button instead. It waits while you record or a call
+  is processing, and stops first if a release lists something IT has to do (`Needs:`).
+- **`mt update`** (and `mt update --check`) does the same from a terminal.
+- New config `release_url` (defaults to this project's release repo). The About panel says
+  whether you are up to date.
+
 ## [0.7.7] — 2026-10-27
 
 **After updating: restart `mt web`.** No rebuild needed.

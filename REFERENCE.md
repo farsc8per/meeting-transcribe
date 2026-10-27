@@ -42,6 +42,7 @@ mt live --customer acme --name acme-weekly --title "Acme // Weekly"   # record +
 | `mt index` | — | Build or refresh the search index. `--rebuild` starts over. |
 | `mt devices` | `--forget` | List microphones and speakers, mark the current system defaults, say which ones `mt` would pick at this desk, and show the picks it remembers per desk. `--forget` clears them. |
 | `mt doctor` | — | Check binaries, models, python env, voiceprints, permissions. Run this first when anything misbehaves. |
+| `mt update` | `--check`, `--force` | Install the newest release: switch to its tag, rebuild only if needed, `mt doctor`, roll back on failure. `--check` only says what's new; `--force` goes past a `Needs:` line. **Update now** in `mt web` does the same and restarts `mt web`. Release installs only. |
 
 ### Per-command flags
 
@@ -101,6 +102,7 @@ Defaults for everything. Per-meeting flags override these.
 | `jira_keychain` | `mt-jira-api` | Keychain service holding the Jira API token (or use `~/.config/mt/credentials.json`). |
 | `assistant_name` | `assistant` | What your AI assistant is called where mt records who did something. |
 | `recording_policy_url` | empty | Makes "your company's recording policy" under the Record button a link. Empty = plain text. |
+| `release_url` | this project's release repo | Where updates come from. An install whose git origin is this URL is a release install (Update now works); anything else is a development copy, updated by merging. |
 | `feedback_repo` | this project's GitHub repo | Where **Send feedback** (top right, every page) opens a pre-filled GitHub issue, as `owner/repo`. `""` = no GitHub button; Copy still works. |
 | `memory_dir` | off | A folder of your AI assistant's memory files, for Hygiene → Memory and search. `"claude"` = Claude Code's memory folder for the workspace. |
 | `language` | `en` | Passed to whisper. |

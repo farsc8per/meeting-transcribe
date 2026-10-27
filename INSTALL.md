@@ -157,7 +157,21 @@ mt recognises those voices from then on. See `README.md` for everything else.
 
 ## Updating
 
-Releases are git tags (`v0.6.0`…). To update, tell your assistant **"update mt"** with:
+Releases are git tags (`v0.6.0`…). From 0.7.8 on, mt checks for a new release once a day
+and shows **vX.Y.Z available** next to the version at the top of `mt web`. Click it to see
+what's new, then **Update now**: mt switches to the new release, rebuilds only if it has to,
+runs `mt doctor`, and restarts itself — the page reloads on the new version, no new tab. If
+the rebuild or `mt doctor` fails it goes back to the version you had. It waits while you are
+recording or a call is still being processed, and it stops before changing anything if a
+release needs a newer macOS, Xcode tools or Homebrew package (a **Needs:** line in that
+release's notes), so you can raise the IT request first. In a terminal, `mt update --check`
+says what's new and `mt update` installs it (then restart `mt web` yourself).
+
+Afterwards, a 1-minute test recording (INSTALL.md, "Test recording") is still the best check
+before a real meeting.
+
+**Updating from 0.7.7 or older** (no Update button yet), or if the button can't help, tell
+your assistant **"update mt"** with:
 
 > Update `mt` at ~/Tools/mt to the newest release tag. First run `mt version` and
 > `git fetch --tags`, then show me the CHANGELOG.md entries between my version and the newest

@@ -37,8 +37,13 @@ import feedback as FB
 import mt as MT
 import passqueue as PQ
 import paths as P
+import updater as UP
 
 HERE = Path(__file__).resolve().parent
+# Changes on every start, so a page can tell "the server restarted" from "still the same".
+BOOT = f"{os.getpid()}-{int(time.time())}"
+SERVE_PORT = 8765
+_UPDATE = {"thread": None}
 WEBAPP = HERE / "webapp"
 RUN = HERE / "run"
 RUN.mkdir(exist_ok=True)
@@ -2149,7 +2154,7 @@ def version_info() -> dict:
     return {"version": MT.VERSION, "git": git("describe", "--tags", "--always", "--dirty"),
             "schema": schema, "models": models, "binaries": binaries, "packages": packages,
             "python": sys.version.split()[0], "policy_url": P.RECORDING_POLICY_URL or None,
-            "macos": FB.macos(), "arch": platform.machine() or None,
+            "macos": FB.macos(), "arch": platform.machine() or None, "boot": BOOT,
             "feedback_repo": P.FEEDBACK_REPO or None}
 
 
@@ -4126,6 +4131,10 @@ class App(BaseHTTPRequestHandler):
             return self._file(t)
         if path == "/api/version":
             return self._json(version_info())
+        if path == "/api/update":
+            return self._json(UP.cached())
+        if path == "/api/update/status":
+            return self._json(UP.status())
         if path == "/api/state":
             # One endpoint for "what is this machine doing right now". The page already
             # polls it every 2s, so the processing passes need no second poller.
@@ -4362,6 +4371,10 @@ class App(BaseHTTPRequestHandler):
         # the whole request thread out with an AttributeError instead of an answer.
         if not isinstance(body, dict):
             body = {}
+        if u.path == "/api/update/check":
+            return self._json(UP.check(force=True))
+        if u.path == "/api/update/start":
+            return self._json(update_start(bool(body.get("force"))))
         if u.path == "/api/feedback/check":
             return self._json({"hits": FB.check(str(body.get("text") or ""))})
         if u.path == "/api/record/start":
@@ -4530,7 +4543,69 @@ def cli_reference() -> dict:
                       "tool": str(HERE)}}
 
 
+def _update_busy() -> str | None:
+    """Why an update must wait, or None. Switching versions under a running recorder or
+    pass would swap its code mid-call."""
+    try:
+        if MT.active_session() is not None:
+            return "a recording is running"
+    except Exception:
+        pass
+    if _live_names():
+        return "a call is still being processed"
+    try:
+        if PQ.pending():
+            return "calls are waiting to be processed"
+    except Exception:
+        pass
+    return None
+
+
+def update_start(force: bool = False) -> dict:
+    """POST /api/update/start — run the update in the background; on success, restart this
+    server in place on the new version. The page follows /api/update/status, then waits
+    for /api/version to report the new version and reloads itself."""
+    t = _UPDATE["thread"]
+    if t is not None and t.is_alive():
+        return {"ok": False, "why": "an update is already running"}
+    busy = _update_busy()
+    if busy:
+        return {"ok": False, "why": f"not now: {busy}"}
+
+    def go():
+        res = UP.run(busy=None, force=force, say=lambda s: MT.say(f"   update: {s}"))
+        if res.get("ok"):
+            time.sleep(1.0)                 # let the page read "done" before we vanish
+            _restart()
+
+    _UPDATE["thread"] = threading.Thread(target=go, daemon=True)
+    _UPDATE["thread"].start()
+    return {"ok": True}
+
+
+def _restart() -> None:
+    """Become a fresh `mt web` on the same port, in the same terminal, with no new browser
+    tab: the open pages notice the new version and reload themselves."""
+    MT.step("restarting mt web on the new version")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, str(HERE / "mt.py"), "web",
+                              "--port", str(SERVE_PORT), "--no-open"])
+
+
+def _update_loop() -> None:
+    """Check for a new release now and then; check() itself keeps to once a day."""
+    while True:
+        try:
+            UP.check()
+        except Exception:
+            pass
+        time.sleep(3600)
+
+
 def serve(port: int = 8765, open_browser: bool = True):
+    global SERVE_PORT
+    SERVE_PORT = port
     # Do this BEFORE serving, in the foreground, so gog can prompt on the terminal that
     # launched us. One prompt at startup beats a permanently broken Today panel.
     MT.step("fetching today's calendar")
@@ -4542,6 +4617,7 @@ def serve(port: int = 8765, open_browser: bool = True):
         MT.say(f"{MT.DIM}{r.get('why','')}{MT.RST}")
 
     srv = ThreadingHTTPServer(("127.0.0.1", port), App)
+    threading.Thread(target=_update_loop, daemon=True).start()
     url = f"http://127.0.0.1:{port}/"
     MT.step(f"mt web on {url}")
     MT.say(f"{MT.DIM}   localhost only — it can start recordings, so it is never exposed{MT.RST}")

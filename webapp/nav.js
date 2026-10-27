@@ -52,6 +52,19 @@ css.textContent =
   "dialog.about td{padding:3px 8px 3px 0;vertical-align:top;overflow-wrap:anywhere}" +
   "dialog.about td:first-child{color:var(--ink-3);width:58%}" +
   "dialog.about code{font:12px var(--m)}" +
+  ".hdr-verrow{display:flex;align-items:baseline;gap:8px}" +
+  ".hdr-upd{margin-top:3px;padding:0 7px;border:1px solid var(--accent);border-radius:999px;" +
+    "background:none;font:11px var(--m);color:var(--accent);cursor:pointer}" +
+  ".hdr-upd:hover{background:var(--accent);color:#fff}" +
+  "dialog.upd{max-width:640px}" +
+  "dialog.upd .notes{max-height:300px;overflow:auto;margin-top:10px}" +
+  "dialog.upd .notes h4{margin:10px 0 4px;font-size:13px}" +
+  "dialog.upd .notes pre{font:12.5px/1.5 var(--f);white-space:pre-wrap;margin:0;color:var(--ink-2)}" +
+  "dialog.upd .steps{font:12px/1.6 var(--m);color:var(--ink-2);margin-top:10px}" +
+  ".mt-updbar{position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:1000;" +
+    "display:flex;gap:10px;align-items:center;padding:8px 12px;border-radius:8px;" +
+    "background:var(--surface);border:1px solid var(--accent);box-shadow:0 4px 18px rgba(0,0,0,.15);" +
+    "font-size:13px}" +
   "dialog.fb{max-width:600px}" +
   ".fb-kind{display:flex;gap:8px;margin:12px 0 10px}" +
   ".fb-kind button{padding:5px 14px;border-radius:999px}" +
@@ -84,7 +97,14 @@ if (h1) brand.appendChild(h1);
 var ver = el("button", "hdr-ver", "version …");
 ver.type = "button";
 ver.title = "About this install";
-brand.appendChild(ver);
+var verRow = el("div", "hdr-verrow");
+verRow.appendChild(ver);
+var upd = el("button", "hdr-upd", "");
+upd.type = "button";
+upd.hidden = true;
+upd.title = "A newer mt is out — see what's new and update";
+verRow.appendChild(upd);
+brand.appendChild(verRow);
 top.appendChild(brand);
 var right = el("div", "hdr-right");
 if (day) right.appendChild(day);
@@ -127,6 +147,14 @@ function about() {
     row(t, "Release", info.git);
     row(t, "Database schema", info.schema == null ? null : "v" + info.schema);
     row(t, "Python", info.python);
+    if (UPD && !UPD.checking) {
+      var u = !UPD.ok ? UPD.why
+        : UPD.kind !== "release"
+          ? "development copy · newest public release " + (UPD.latest ? "v" + UPD.latest : "unknown")
+            + (UPD.latest && UPD.latest !== info.version ? " (not the same as this copy)" : "")
+          : UPD.available ? "v" + UPD.latest + " available" : "up to date";
+      row(t, "Updates", u + (UPD.checked_at ? " · checked " + UPD.checked_at.slice(0, 16).replace("T", " ") : ""));
+    }
     Object.keys(info.packages || {}).forEach(function (k) { row(t, k, info.packages[k]); });
     (info.binaries || []).forEach(function (b) {
       row(t, b.name, b.built ? "built " + b.built : "not built");
@@ -311,8 +339,154 @@ function feedback() {
   d.showModal();
   title.focus();
 }
+// ── Updates: "vX available" beside the version, one-click Update now, and every open page
+// reloading itself once the server comes back on a new version (never a new tab: the
+// server restarts in place). A page with a dialog or edit sheet open gets a Reload bar
+// instead, so nothing typed is lost.
+var UPD = null;
+var LOADED = null;          // the version this page was served by
+var updating = false;
+function loadUpdate() {
+  return fetch("/api/update").then(function (r) { return r.json(); }).then(function (u) {
+    UPD = u;
+    upd.hidden = !(u && u.available);
+    if (u && u.available) upd.textContent = "v" + u.latest + " available";
+    return u;
+  }).catch(function () { return null; });
+}
+upd.addEventListener("click", function () { updateDialog(); });
+
+function updateDialog() {
+  var d = el("dialog", "about upd");
+  var u = UPD || {};
+  d.appendChild(el("h3", null, u.available ? "Update mt to v" + u.latest : "mt updates"));
+  d.appendChild(el("div", "note", u.available
+    ? "You have v" + u.current + ". Your recordings, voiceprints, settings and database stay "
+      + "as they are; mt restarts by itself and this page reloads."
+    : (u.ok === false ? u.why : "mt " + (u.current || "") + " is up to date.")));
+  var notes = el("div", "notes");
+  (u.notes || []).forEach(function (s) {
+    notes.appendChild(el("h4", null, "What's new in " + s.version));
+    notes.appendChild(el("pre", null, s.text));
+  });
+  if ((u.notes || []).length) d.appendChild(notes);
+  var force = null;
+  if ((u.needs || []).length) {
+    var w = el("div", "fb-warn");
+    w.appendChild(el("b", null, "Needs first: "));
+    w.appendChild(document.createTextNode(u.needs.join("; ")));
+    d.appendChild(w);
+    var fl = el("label");
+    force = el("input");
+    force.type = "checkbox";
+    fl.appendChild(force);
+    fl.appendChild(document.createTextNode(" That's been done — update anyway"));
+    d.appendChild(fl);
+  }
+  var steps = el("div", "steps");
+  d.appendChild(steps);
+  var foot = el("div", "fb-foot");
+  var st = el("span", "grow", "");
+  foot.appendChild(st);
+  var again = el("button", null, "Check again");
+  again.type = "button";
+  var close = el("button", null, "Close");
+  close.type = "button";
+  var go = el("button", "primary", "Update now");
+  go.type = "button";
+  go.hidden = !u.available;
+  if (force) {
+    go.disabled = true;
+    force.addEventListener("change", function () { go.disabled = !force.checked; });
+  }
+  foot.appendChild(again);
+  foot.appendChild(close);
+  foot.appendChild(go);
+  d.appendChild(foot);
+  close.addEventListener("click", function () { d.close(); });
+  again.addEventListener("click", function () {
+    again.disabled = true;
+    st.textContent = "Checking…";
+    fetch("/api/update/check", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: "{}" }).then(function (r) { return r.json(); }).then(function () {
+      return loadUpdate();
+    }).then(function () { d.close(); updateDialog(); });
+  });
+  go.addEventListener("click", function () {
+    go.disabled = again.disabled = close.disabled = true;
+    updating = true;
+    st.textContent = "Updating…";
+    fetch("/api/update/start", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: !!(force && force.checked) }) })
+      .then(function (r) { return r.json(); }).then(function (r) {
+        if (!r.ok) {
+          updating = false;
+          st.textContent = r.why || "Could not start the update.";
+          close.disabled = false;
+          return;
+        }
+        follow();
+      });
+  });
+  // Follow the steps; once the server has gone away and come back on the new version,
+  // reload. A failed or refused update says why and leaves everything as it was.
+  function follow() {
+    fetch("/api/update/status").then(function (r) { return r.json(); }).then(function (s) {
+      steps.innerHTML = "";
+      (s.steps || []).forEach(function (x) { steps.appendChild(el("div", null, "· " + x.text)); });
+      if (s.state === "done") {
+        st.textContent = "Installed — restarting mt…";
+        return waitForNew(u.latest);
+      }
+      if (s.state === "failed" || s.state === "refused") {
+        updating = false;
+        st.textContent = s.why || s.state;
+        close.disabled = false;
+        return;
+      }
+      setTimeout(follow, 1000);
+    }).catch(function () { waitForNew(u.latest); });   // already restarting
+  }
+  d.addEventListener("close", function () { d.remove(); });
+  document.body.appendChild(d);
+  d.showModal();
+}
+
+function waitForNew(want) {
+  fetch("/api/version", { cache: "no-store" }).then(function (r) { return r.json(); })
+    .then(function (v) {
+      if (v.version === want || (LOADED && v.version !== LOADED)) { location.reload(); return; }
+      setTimeout(function () { waitForNew(want); }, 1000);
+    }).catch(function () { setTimeout(function () { waitForNew(want); }, 1000); });
+}
+
+function reloadBar(v) {
+  if (document.querySelector(".mt-updbar")) return;
+  var b = el("div", "mt-updbar");
+  b.appendChild(el("span", null, "mt is now v" + v + "."));
+  var r = el("button", "primary", "Reload");
+  r.type = "button";
+  r.addEventListener("click", function () { location.reload(); });
+  b.appendChild(r);
+  document.body.appendChild(b);
+}
+
+// Every open page: when the server comes back on a different version, reload — unless
+// something is open that could hold unsaved typing, then offer the reload instead.
+setInterval(function () {
+  if (updating || !LOADED || document.hidden) return;
+  fetch("/api/version", { cache: "no-store" }).then(function (r) { return r.json(); })
+    .then(function (v) {
+      if (!v.version || v.version === LOADED) return;
+      if (document.querySelector("dialog[open], .modal")) reloadBar(v.version);
+      else location.reload();
+    }).catch(function () { /* server restarting or stopped: ask again later */ });
+}, 15000);
+
 fetch("/api/version").then(function (r) { return r.json(); }).then(function (v) {
   info = v;
+  LOADED = v.version;
+  loadUpdate();
   ver.textContent = "v" + v.version;
   var pn = document.getElementById("policynote");
   if (pn && v.policy_url) {

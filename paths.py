@@ -142,6 +142,10 @@ RECORDING_POLICY_URL = (_CFG.get("recording_policy_url")
 # Where "Send feedback" files a GitHub issue: "owner/repo". "" in config turns the GitHub
 # button off and leaves Copy (paste it to whoever runs your install).
 FEEDBACK_REPO = str(_CFG.get("feedback_repo", "farsc8per/meeting-transcribe")).strip()
+# Where releases come from — the "vX available" check, Update now and `mt update`. An
+# install whose git origin is this URL is a release install; anything else is a dev copy.
+RELEASE_URL = str(_CFG.get("release_url")
+                  or "https://github.com/farsc8per/meeting-transcribe.git").strip()
 # Weekly-update posting (the TAM Jira project). Blank site = Jira posting is off and says so.
 JIRA_SITE = (os.environ.get("MT_JIRA_SITE_URL") or _CFG.get("jira_site") or "").rstrip("/")
 # macOS keychain service holding the Jira API token, when not in the credentials file.

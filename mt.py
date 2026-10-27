@@ -2072,6 +2072,43 @@ def doctor_workspace() -> bool:
     return ok
 
 
+def cmd_update(a):
+    """mt update — install the newest release (updater.py). --check only reports."""
+    import updater as UP
+    import passqueue as PQ
+    if a.check:
+        c = UP.check(force=True)
+        if not c.get("ok"):
+            warn(c.get("why") or "could not check")
+            return 1
+        if c["kind"] != "release":
+            say(f"mt {c['current']} — {c['why']}. Newest public release: "
+                f"{c.get('latest') or 'unknown'}.")
+            return 0
+        if not c["available"]:
+            say(f"mt {c['current']} is the newest release.")
+            return 0
+        say(f"{BOLD}mt {c['latest']} is available{RST} (you have {c['current']}).")
+        for s in c["notes"]:
+            say(f"\n{BOLD}{s['version']}{RST}\n{s['text']}")
+        for n in c["needs"]:
+            warn(f"needs: {n}")
+        say(f"\n{DIM}Install it with: mt update{RST}")
+        return 0
+    busy = None
+    if active_session() is not None:
+        busy = "a recording is running"
+    elif PQ.pending() or PQ.worker_alive():
+        busy = "calls are still being processed"
+    step("updating mt")
+    r = UP.run(busy=busy, force=a.force, say=lambda s: say(f"   {s}"))
+    if not r.get("ok"):
+        return 1                          # run() has already said why
+    say(f"{BOLD}mt {r['to']} installed.{RST} Restart mt web if it is running "
+        f"(Ctrl-C, then mt web) — Update now in mt web does that for you.")
+    return 0
+
+
 def cmd_doctor(a):
     cfg = config()
     ok = True
@@ -4129,6 +4166,12 @@ def build_parser() -> argparse.ArgumentParser:
                        help="re-run transcription instead of reusing a previous pass")
 
     q = sub.add_parser("doctor", help="check install + permissions"); q.set_defaults(f=cmd_doctor)
+
+    q = sub.add_parser("update", help="install the newest release (or --check)")
+    q.add_argument("--check", action="store_true", help="only say what is new")
+    q.add_argument("--force", action="store_true",
+                   help="go ahead past a release's Needs: line (after IT has done it)")
+    q.set_defaults(f=cmd_update)
     q = sub.add_parser("version", help="print the installed version"); q.set_defaults(f=cmd_version)
     q = sub.add_parser("init", help="create the workspace folders and a new database "
                                     "(never touches an existing one)")
