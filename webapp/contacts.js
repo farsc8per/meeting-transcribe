@@ -882,6 +882,7 @@
       // mdToHtml escapes first and only then adds tags of its own — the same contract as
       // index.html, which renders the same files through the same function.
       body.innerHTML = mdToHtml(r.markdown);
+      head.insertBefore(mdPrintButton(wrap, id), x);
     }).catch(function () {
       body.textContent = "Could not load that summary.";
     });

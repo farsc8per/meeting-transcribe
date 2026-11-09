@@ -2962,18 +2962,32 @@ def handoff(p: dict) -> dict:
     d = next((x for x in existing_session_dirs() if x.name == sid), None)
     if d is None:
         return {"ok": False, "why": "no such session"}
+    # Confirm the voices mt is already sure of (strong voiceprint or strong live name, and a
+    # verified contact), then re-render the way `mt relabel` does. Never touches voiceprints.
+    import promote as PR
+    now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    try:
+        pr = PR.promote(d, now=now)
+    except Exception as ex:
+        pr = {"promoted": [], "open": [], "line": f"auto-confirm skipped: {ex}"}
+    if pr["promoted"]:
+        try:
+            MT.cmd_relabel(SimpleNS(session=str(d)))
+        except (SystemExit, Exception) as ex:
+            pr["line"] += f" Relabel failed: {ex}"
     doc = json.loads((d / "transcript.json").read_text())
     sp = {k: v for k, v in doc.get("speakers", {}).items() if k != "mic"}
     open_ = [k for k, v in sp.items() if v.get("confidence") != "verified"
              and not v.get("mixed")]
     rel = str(d.relative_to(MT.WORKSPACE))
     (d / "handoff.json").write_text(json.dumps({
-        "ready_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "ready_at": now,
         "session": d.name, "path": rel,
         "voices_verified": sum(1 for v in sp.values() if v.get("confidence") == "verified"),
         "voices_open": open_,
+        "auto_confirmed": [p["key"] for p in pr["promoted"]],
     }, indent=2) + "\n")
-    return {"ok": True, "open": open_,
+    return {"ok": True, "open": open_, "promoted": pr["promoted"], "promote_line": pr["line"],
             "line": f"{d / 'transcript.md'} is reviewed — summarise it, "
                     f"pull the action items, and track them."}
 

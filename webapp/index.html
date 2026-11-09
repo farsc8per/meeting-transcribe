@@ -562,6 +562,7 @@ async function showSummary(id, title){
     return;
   }
   body.innerHTML = mdToHtml(r.markdown);
+  head.insertBefore(mdPrintButton(wrap, id), x);
 }
 document.addEventListener("keydown", e => { if(e.key === "Escape") closeSummary(); });
 

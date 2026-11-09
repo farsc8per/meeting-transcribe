@@ -1585,6 +1585,9 @@ function drawOverrides(){
   box.appendChild(c);
 }
 
+// The last hand-off result, kept across the reload that follows it: hand-off confirms the
+// strong matches, so the speaker cards have to be redrawn, and that redraws this card too.
+let HOFF = null;
 function drawHandoff(){
   const box=$("#hoffbox"); box.innerHTML="";
   const open = D.speakers.filter(s=>!s.is_mic && !s.verified && !s.mixed).length;
@@ -1593,24 +1596,33 @@ function drawHandoff(){
   c.appendChild(el("div",null, open
     ? open+" voice"+(open===1?"":"s")+" still unreviewed. You can hand off anyway."
     : "All voices settled."));
-  const say=el("div","say", D.handed_off ? "already handed off" : "");
+  if(!HOFF) c.appendChild(el("div","say",
+    "Strong voiceprint and live-name matches to verified contacts are confirmed when you hand off."));
+  else if(HOFF.promote_line){
+    const pl=el("div","say",HOFF.promote_line); pl.style.marginTop="8px";
+    c.appendChild(pl);
+  }
+  const say=el("div","say", (D.handed_off && !HOFF) ? "already handed off" : "");
   const b=el("button","go","Mark reviewed and hand off");
   b.style.marginTop="10px";
   b.onclick=async()=>{
     b.disabled=true;
     const r=await api("/api/handoff",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({session:sid})});
-    if(r.ok){
-      say.textContent="ready — paste this to your assistant:";
-      const p=el("div","card"); p.style.marginTop="8px";
-      p.style.fontFamily="var(--m)"; p.style.fontSize="12px"; p.textContent=r.line;
-      const cp=el("button","ghost","Copy"); cp.style.marginTop="8px";
-      cp.onclick=()=>navigator.clipboard && navigator.clipboard.writeText(r.line)
-        .then(()=>cp.textContent="Copied");
-      c.appendChild(p); c.appendChild(cp);
-    } else { say.textContent="failed: "+(r.why||""); b.disabled=false; }
+    if(r.ok){ HOFF=r; await load(); }
+    else { say.textContent="failed: "+(r.why||""); b.disabled=false; }
   };
   c.appendChild(b); c.appendChild(say);
+  if(HOFF){
+    say.textContent="ready — paste this to your assistant:";
+    const p=el("div","card"); p.style.marginTop="8px";
+    p.style.fontFamily="var(--m)"; p.style.fontSize="12px"; p.textContent=HOFF.line;
+    const cp=el("button","ghost","Copy"); cp.style.marginTop="8px";
+    const line=HOFF.line;
+    cp.onclick=()=>navigator.clipboard && navigator.clipboard.writeText(line)
+      .then(()=>cp.textContent="Copied");
+    c.appendChild(p); c.appendChild(cp);
+  }
   box.appendChild(c);
 }
 

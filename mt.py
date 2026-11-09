@@ -932,6 +932,8 @@ def render_markdown(session: Path, meta: dict, timeline: list[dict], names: dict
             bits.append(f"match {info['score']:.2f}")
         if info.get("confidence") != "verified":
             bits.append("**unconfirmed**")
+        elif info.get("confirmed_by") == "ready-to-review":
+            bits.append("auto-confirmed at hand-off")
         roster.append(f"| {label} | `{k}` | {', '.join(bits) or '—'} |")
     if roster:
         L += ["## Speakers", "", "| Name | Key | Basis |", "|---|---|---|"] + roster + [""]

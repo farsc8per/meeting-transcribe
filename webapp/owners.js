@@ -22,7 +22,7 @@ function post(p, body) {
                   body: JSON.stringify(body) });
 }
 
-var Q = [], CONTACTS = [], CUSTOMERS = [], I = 0, DONE = 0, SKIPPED = {};
+var Q = [], CONTACTS = [], CUSTOMERS = [], I = 0, DONE = 0, SKIPPED = {}, SLOT_SEQ = 0;
 
 function load() {
   return Promise.all([api("/api/hygiene/owners"), api("/api/contacts?limit=2000"),
@@ -81,7 +81,7 @@ function show() {
   it.rows.forEach(function (r) {
     var a = el("a", "own-row" + (r.live ? "" : " done"));
     a.href = "/tracking?open=" + r.id;
-    a.target = "mt-tracking";
+    if (window.mtPeekLink) mtPeekLink(a, r.id);   // read it here; the card stays as you left it
     a.appendChild(el("span", "gid", "#" + r.id));
     a.appendChild(el("span", "own-t", r.label));
     if (r.account) a.appendChild(el("span", "tag cust", r.account));
@@ -93,6 +93,10 @@ function show() {
 
   // One slot per name: owner first, then "with". Each slot holds the chosen contact id.
   var slots = [];
+  function onItemAccount(cand) {
+    var a = cand.customer || custShort(cand.customer_id);
+    return !!a && it.accounts.indexOf(a) >= 0;
+  }
   var slotBox = el("div", "own-slots");
   function addSlot(role, name, candidates) {
     var s = { role: role, name: name, chosen: null };
@@ -107,49 +111,90 @@ function show() {
     }
     w.appendChild(h);
     var opts = el("div", "own-opts");
+    // One radio group per slot — every option in this slot shares the name, so picking
+    // one un-picks the others (a fresh name per option made them all stick).
+    var group = "slot-" + (++SLOT_SEQ);
+    var byId = {};
+    var none = null;
+    function pick(id) {
+      opts.querySelectorAll("label.own-opt").forEach(function (x) {
+        var on = x.dataset.id === String(id);
+        x.classList.toggle("on", on);
+        x.querySelector("input").checked = on;
+      });
+      s.chosen = id;
+      sync();
+    }
     function option(cand) {
+      if (byId[cand.id]) return byId[cand.id];   // already offered — just reuse it
+      if (none) { none.remove(); none = null; }
       var l = el("label", "own-opt");
+      l.dataset.id = String(cand.id);
       var r = el("input");
       r.type = "radio";
-      r.name = "slot" + slots.length + "-" + Math.random().toString(36).slice(2, 6);
-      r.addEventListener("change", function () {
-        opts.querySelectorAll("label").forEach(function (x) { x.classList.remove("on"); });
-        l.classList.add("on");
-        s.chosen = cand.id;
-        sync();
-      });
+      r.name = group;
+      r.value = String(cand.id);
+      r.addEventListener("change", function () { if (r.checked) pick(cand.id); });
       l.appendChild(r);
       l.appendChild(el("span", "own-n", cand.name));
-      l.appendChild(el("span", "own-w", who(cand)));
+      l.appendChild(el("span", "own-w", who(cand) || "no account"));
+      if (onItemAccount(cand)) l.appendChild(el("span", "tag cust", "this item's account"));
       if (cand.verified === false || cand.verification_status === "needs_confirmation") {
         l.appendChild(el("span", "tag todo", "unverified"));
       }
       if (cand.why) l.appendChild(el("span", "own-why2", cand.why));
       opts.appendChild(l);
+      byId[cand.id] = r;
       return r;
     }
+    function choose(cand) { option(cand); pick(cand.id); }
     (candidates || []).forEach(option);
-    if (!(candidates || []).length) opts.appendChild(el("div", "hint", "No contact looks like this name."));
+    if (!(candidates || []).length) {
+      none = el("div", "hint", "No contact looks like this name — search below or add a new person.");
+      opts.appendChild(none);
+    }
     w.appendChild(opts);
 
-    // Search every contact, or add a new person.
+    // Search every contact, or add a new person. The list shows role + account, because
+    // some people (your own company's staff) have one contact row per account with the same name.
     var tools = el("div", "own-tools");
     var q = el("input");
     q.placeholder = "Search all contacts…";
     q.setAttribute("list", "own-all");
     var useQ = el("button", "tap", "Use");
-    useQ.addEventListener("click", function () {
-      var hit = CONTACTS.filter(function (x) { return x.name.toLowerCase() === q.value.trim().toLowerCase(); });
-      if (hit.length !== 1) { alert(hit.length ? "More than one contact has that name — pick one from the list above (search shows them)." : "No contact with exactly that name."); return; }
-      option(Object.assign({ why: "searched" }, hit[0])).click();
+    var qHint = el("div", "hint own-qhint");
+    qHint.hidden = true;
+    function useSearch() {
+      var v = q.value.trim();
+      qHint.hidden = true;
+      if (!v) return;
+      var m = /\(#(\d+)\)\s*$/.exec(v);   // a pick from the list carries its id
+      var hit = m ? CONTACTS.filter(function (x) { return String(x.id) === m[1]; })
+                  : CONTACTS.filter(function (x) { return x.name.toLowerCase() === v.toLowerCase(); });
+      if (!hit.length) {
+        qHint.textContent = "No contact with exactly that name — pick from the list, or + New person.";
+        qHint.hidden = false;
+        return;
+      }
       q.value = "";
-    });
+      if (hit.length === 1) { choose(Object.assign({ why: "searched" }, hit[0])); return; }
+      // Same name on several rows: offer all of them (account shown) — the user picks.
+      hit.forEach(function (h) { option(Object.assign({ why: "searched" }, h)); });
+      qHint.textContent = hit.length + " contacts are named “" + hit[0].name
+        + "” — one per account. Pick the right one above.";
+      qHint.hidden = false;
+    }
+    useQ.addEventListener("click", useSearch);
+    q.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); useSearch(); } });
+    // Choosing an entry from the dropdown uses it straight away.
+    q.addEventListener("change", function () { if (/\(#\d+\)\s*$/.test(q.value)) useSearch(); });
     var nw = el("button", "tap", "+ New person");
-    nw.addEventListener("click", function () { newPerson(name, function (cand) { option(cand).click(); }); });
+    nw.addEventListener("click", function () { newPerson(name, choose); });
     tools.appendChild(q);
     tools.appendChild(useQ);
     tools.appendChild(nw);
     w.appendChild(tools);
+    w.appendChild(qHint);
     slotBox.appendChild(w);
     slots.push(s);
   }
@@ -174,11 +219,19 @@ function show() {
   c.appendChild(err);
   box.appendChild(c);
 
+  // Say why Link is grey, in words on the page — not only in a tooltip.
+  var why2 = el("div", "hint own-linkwhy");
+  c.insertBefore(why2, err);
   function sync() {
-    var ok = slots.length && slots[0].role === "owner" && slots[0].chosen
-      && slots.every(function (s) { return s.chosen; });
+    var missing = slots.filter(function (s) { return !s.chosen; })
+      .map(function (s) { return s.role === "owner" ? "Owner" : "With" + (s.name ? " (" + s.name + ")" : ""); });
+    var ok = slots.length && slots[0].role === "owner" && !missing.length;
     link.disabled = !ok;
-    link.title = ok ? "" : "Choose a contact for every name (or remove a “with” you don't want)";
+    var msg = ok ? "" : "Link needs a pick for: " + missing.join(", ")
+      + (missing.some(function (m) { return m !== "Owner"; }) ? " — or remove that “with”." : ".");
+    link.title = msg;
+    why2.textContent = msg;
+    why2.hidden = !msg;
   }
   sync();
   function after(r, label) {
@@ -273,7 +326,12 @@ function fillAll() {
   var dl = $("#own-all");
   if (!dl) { dl = el("datalist"); dl.id = "own-all"; document.body.appendChild(dl); }
   dl.innerHTML = "";
-  CONTACTS.forEach(function (c) { dl.appendChild(new Option(c.name, c.name)); });
+  // "Name — role · account (#id)": same-name rows stay tellable apart, and the id makes a
+  // pick from the list exact.
+  CONTACTS.forEach(function (c) {
+    var w = who(c);
+    dl.appendChild(new Option(c.name + (w ? " — " + w : "") + " (#" + c.id + ")"));
+  });
 }
 
 load().then(function (ok) { if (ok) { fillAll(); show(); } });

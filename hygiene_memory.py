@@ -150,6 +150,21 @@ def _index_refs(index_text: str) -> list[tuple[int, str]]:
     return out
 
 
+def _sub_indexes(files: dict[str, str], idx: str) -> list[str]:
+    """Second-level indexes: live files MEMORY.md links to whose `name:` ends in `-index`
+    (reference_archive_index.md, Oct 12 2026 — closed work moved out of MEMORY.md to keep it
+    under its read limit). Their links count as index lines. The `-index` name is required so
+    an ordinary memory that happens to cite another file with a markdown link doesn't make it
+    count as indexed."""
+    out = []
+    for _, p in _index_refs(idx):
+        t = files.get(p)
+        if (t is not None and p != INDEX and not p.startswith("archive/") and p not in out
+                and (_fields(t).get("name") or "").strip().endswith("-index")):
+            out.append(p)
+    return out
+
+
 # ------------------------------------------------------------------ findings (read-only)
 
 def findings() -> dict:
@@ -179,13 +194,17 @@ def findings() -> dict:
           "Propose a split (current state + verbatim history) for the largest file "
           "on the Hygiene page's 'Files over 30 KB' list, following MEMORY-PROPOSALS.md.")
 
-    refs = _index_refs(idx)
+    refs = [(INDEX, i, p) for i, p in _index_refs(idx)]
+    for sub in _sub_indexes(files, idx):
+        refs += [(sub, i, p) for i, p in _index_refs(files[sub])]
     group("index-missing", "Index lines pointing at a missing file",
-          "The index loads every session; a dead line wastes it and hides a lost memory.",
-          [{"path": p, "label": f"MEMORY.md line {i + 1}"} for i, p in refs if p not in files],
-          "The Hygiene page lists MEMORY.md lines pointing at missing files. Propose "
+          "The index loads every session; a dead line wastes it and hides a lost memory. "
+          "Second-level indexes (files MEMORY.md links to whose name ends in -index) are "
+          "checked too.",
+          [{"path": p, "label": f"{src} line {i + 1}"} for src, i, p in refs if p not in files],
+          "The Hygiene page lists index lines pointing at missing files. Propose "
           "a fix (repoint or remove each line).")
-    indexed = {p for _, p in refs}
+    indexed = {p for _, _, p in refs}
     group("unindexed", "Memory files with no index line",
           "A file with no index line is only found by accident.",
           [{"path": r, "label": (_fields(t).get("description") or "")[:120]}

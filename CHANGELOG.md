@@ -7,6 +7,30 @@ it for real meetings for a week.
 
 ## [Unreleased]
 
+## [0.7.9] — 2026-11-09
+
+**After updating: restart `mt web`.** No rebuild needed.
+
+- **Hand-off confirms the voices mt is already sure of.** **Mark reviewed and hand off** on
+  the Review page now promotes to `verified` every voice that matched a verified contact
+  strongly — by voiceprint (0.85 or better, or 0.75 or better with a 0.20 lead over the next
+  print, the same bar the Meetings page already counts as "matched") or by a strong live
+  name from the Room panel — then re-renders the transcript the way `mt relabel` does. No
+  more editing `speakers.json` by hand for a clean meeting. Unidentified voices, mixed or
+  impure clusters, weak matches, screen-only names and anyone not a verified contact stay
+  `unconfirmed` and keep the transcript banner. Each promotion is recorded in
+  `speakers.json` (`confirmed_by: "ready-to-review"`, `confirmed_at`, `confirmed_basis`) and
+  in `handoff.json` (`auto_confirmed`); the transcript roster says "auto-confirmed at
+  hand-off". The hand-off card shows one line: who was confirmed and what is still open.
+  Voiceprints are never touched: only Confirm averages a meeting into a print. First tests
+  in the repo: `lib/venv/bin/python -m unittest discover -s tests`.
+
+- **Print / PDF on a summary.** The summary pop-up (recordings, archive, and contact search)
+  has a **Print / PDF** button beside Close. It opens the browser's own print dialog: print
+  it, or pick **Save as PDF**. Only the summary prints, full length and in light colours
+  even when the screen is dark, and the suggested file name is the session id. Nothing to
+  install; no server change.
+
 ## [0.7.8] — 2026-10-27
 
 **After updating: restart `mt web`.** No rebuild needed. This is the last update that needs

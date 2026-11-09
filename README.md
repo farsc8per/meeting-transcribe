@@ -135,6 +135,14 @@ mt relabel Customers/acme/meetings/2026-09-03-acme-weekly
 
 `mt enroll` does that for you for the speaker you name.
 
+**Mark reviewed and hand off** on the Review page does it for the voices mt is already sure
+of: a strong voiceprint match (0.85 or better, or 0.75 or better with a 0.20 lead over the
+next print) or a strong live name from the Room panel, and in both cases a verified contact.
+Those become `verified` with `"confirmed_by": "ready-to-review"`, a `confirmed_at` time and
+the basis, and the transcript is re-rendered as `mt relabel` would. Unidentified voices,
+mixed clusters, weak matches and names that came only from the screen stay `unconfirmed`
+and flagged. Hand-off never touches a voiceprint; only Confirm on the Review page does.
+
 ---
 
 ## Getting a summary

@@ -225,7 +225,10 @@ function rowFor(g, r, act, c) {
   }
   var mid = el("div", "hymid");
   var head = el("div", "hylabel");
-  head.appendChild(el("span", "hyid", "#" + r.id));
+  var hid = el("a", "hyid", "#" + r.id);
+  hid.href = "/tracking?open=" + r.id;
+  if (window.mtPeekLink) mtPeekLink(hid, r.id);   // stops the click before the row toggle
+  head.appendChild(hid);
   head.appendChild(document.createTextNode(" " + (r.label || "")));
   mid.appendChild(head);
   (r.lines || []).forEach(function (t) { mid.appendChild(el("div", "hych", t)); });

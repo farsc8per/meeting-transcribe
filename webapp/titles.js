@@ -63,9 +63,9 @@ function show() {
   meta.appendChild(el("span", "tag", d.status));
   if (d.owner) meta.appendChild(el("span", "tag", d.owner));
   if (d.due_date) meta.appendChild(el("span", "tag", "due " + d.due_date));
-  var open = el("a", "ttl-open", "open item ↗");
+  var open = el("a", "ttl-open", "read item");
   open.href = "/tracking?open=" + d.id;
-  open.target = "mt-tracking";
+  if (window.mtPeekLink) mtPeekLink(open, d.id);
   meta.appendChild(open);
   c.appendChild(meta);
 

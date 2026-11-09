@@ -139,3 +139,39 @@ function mdToHtml(src){
   if(inCode && code.length) flushCode();
   return out.join("\n");
 }
+
+// ── print / save as PDF ──────────────────────────────────────────────────────
+// A summary pop-up prints through the browser's own dialog: its "Save as PDF" IS the PDF
+// path, so nothing is installed and nothing is written by mt. While printing, app.css
+// (@media print) shows only the marked pop-up, at full length instead of the scrolled
+// window, in light colours whatever the screen theme. The page title becomes the name the
+// dialog suggests for the PDF, then goes back.
+function mdPrintButton(modal, name){
+  const b = document.createElement("button");
+  b.className = "mdprint";
+  b.textContent = "Print / PDF";
+  b.title = "Print this summary. For a PDF, pick Save as PDF in the print dialog.";
+  b.onclick = e => { e.stopPropagation(); mdPrint(modal, name); };
+  return b;
+}
+
+let mdPrintTidy = null;
+function mdPrint(modal, name){
+  if(mdPrintTidy) mdPrintTidy();      // a dialog whose afterprint never came
+  const was = document.title;
+  const tidy = () => {
+    modal.classList.remove("mt-print-target");
+    document.body.classList.remove("mt-printing");
+    document.title = was;
+    window.removeEventListener("afterprint", tidy);
+    mdPrintTidy = null;
+  };
+  // Only afterprint undoes it. print() blocks in Chrome and Safari, but not everywhere,
+  // and undoing early would print the page behind the pop-up instead.
+  mdPrintTidy = tidy;
+  modal.classList.add("mt-print-target");
+  document.body.classList.add("mt-printing");
+  if(name) document.title = name;
+  window.addEventListener("afterprint", tidy);
+  window.print();
+}
