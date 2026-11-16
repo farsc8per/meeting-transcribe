@@ -7,6 +7,54 @@ it for real meetings for a week.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-16
+
+**After updating: restart `mt web`.** No rebuild needed. If mt created your database, it is
+upgraded for you (backup first); if you brought your own, `mt doctor` says what to run.
+
+- **Links on every tracking item.** The item sheet lists everything an item points at —
+  Jira, Monday, Slack, Gmail, Drive, Confluence, a local file, any URL — each one click.
+  **+ Add link** takes a pasted URL, a ticket key or a workspace path. ★ picks the
+  **primary** link, which shows as a one-click chip on the list and as ↗ on the Gantt.
+- **Follow-up date**, separate from Due, with a **Follow-ups due** quick view.
+- **Stale tickets** quick view: open items whose linked Jira ticket has not moved in 60+
+  days, or is already done. **Refresh from Jira** reads status and last-updated
+  (read-only, the same Jira token as weekly-update posting).
+- New optional settings `monday_site` and `slack_site` turn id-only links into URLs.
+- **`mt migrate`** applies new database features in one go, after a backup. The updater and
+  `mt web` run it for a database mt created; for your own database it only reports, and
+  `mt migrate --own-db` applies it when you choose (docs/DATABASE.md has a prompt for your
+  assistant).
+- **Predecessors and "with" people are recorded on the item.** Adding or removing a
+  predecessor, marking one met anyway, or adding or removing a "with" person now logs a
+  line in the item's change log (on both items, for a predecessor), like links and field
+  edits already did. Other open mt windows now refresh when a "with" person changes.
+- **Hygiene backups no longer pile up next to the database.** The whole-database backup
+  the Hygiene page takes before each fix now goes in `backups/` beside the database, and
+  only the newest 10 are kept (`hygiene_backups_keep` in config.json). Nothing else in that
+  folder is touched. Older backups already sitting next to the database are not moved or
+  deleted; remove them yourself once you no longer need them.
+- **Fix:** `weekly.py --migrate` now refuses the live database the same way `tracking.py`
+  does, including when run from a second checkout, and refuses a copy that still has the
+  live database's file name (rename the copy first).
+
+- **Name who's talking on every call, not just vocal-cues ones.** **Open Room ↗** is now on
+  every recording card. Without Vocal cues the Room shows names only — no gauges, key or
+  awards — and the far end still splits into Speaker 1, 2, … by voice, and a voice that
+  matches a saved voiceprint names itself once it has said about 8 s. Delivery (pitch,
+  energy, pace) and laughter are still measured only when you tick Vocal cues.
+- **Room cards stay put.** Every card keeps the spot where it first appeared for the whole
+  call: no folding quiet voices away after 5 minutes, and a new Speaker card no longer
+  slides in above ones already showing. Each card shows just the latest line that voice
+  said, in a box that doesn't change height, and the panel holds its refresh while a mouse
+  button is down — so a click lands on the card you aimed at.
+- **✓ Confirm during the call.** On a voice match or a name you gave, **✓ Confirm** says
+  "that's them". After the full pass the review page opens with that voice already
+  confirmed ("confirmed live in the Room") when the name is a verified contact and the
+  voice clearly matches; otherwise it is filled in for you to check, with the reason.
+  **↺ Unconfirm** or **Undo last** takes it back; **✎ Rename** drops the ✓. Picking a name
+  alone still waits for your confirm on the review page. Nothing is enrolled.
+
 ## [0.7.9] — 2026-11-09
 
 **After updating: restart `mt web`.** No rebuild needed.

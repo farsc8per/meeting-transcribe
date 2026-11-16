@@ -26,6 +26,9 @@ CLI (for development against a COPY of the DB):
     python3 tracking.py --vocab
     python3 tracking.py --drift
     python3 tracking.py --migrate /tmp/copy.db
+    python3 tracking.py --migrate-links /tmp/copy.db      (R4.9; --live <db> backs up first)
+    python3 tracking.py --links 586 550                  (an item's links, primary first)
+    python3 tracking.py --stale [days]                   (open items, quiet Jira tickets)
     python3 tracking.py "search term"
 """
 
@@ -83,6 +86,10 @@ SCOPE_HELP = {
 # definitions — "what happens if I change this" is the question the form cannot answer
 # on its own. Every claim here was checked against the code or the data on Sep 22 2026.
 FIELD_HELP = {
+    "follow_up_date":
+        "When you next touch this — chase, check, or update someone. Separate from Due, "
+        "which is a real deadline. Roll it forward each time you follow up; the item "
+        "stays open. The Follow-ups due quick view lists the ones at or past today.",
     "title":
         "The headline, as `XXX - Short title summary`: XXX is the account's code (set per "
         "account in config.json; INT for internal work), then a short topic summary — ideally the "
@@ -769,7 +776,8 @@ ITEM_BASE_COLUMNS = [
     "priority", "source", "created_at", "updated_at", "report_scope", "parent_id",
 ]
 ITEM_ALL_COLUMNS = (ITEM_BASE_COLUMNS + [c for c, _ in ITEM_NEW_COLUMNS]
-                    + [c for c, _ in ITEM_R42_COLUMNS] + [c for c, _ in ITEM_R44C_COLUMNS])
+                    + [c for c, _ in ITEM_R42_COLUMNS] + [c for c, _ in ITEM_R44C_COLUMNS]
+                    + ["follow_up_date"])                         # R4.9
 
 # `source` is writable but deliberately unvalidated — it is doing four jobs at once
 # (provenance, ticket ids, file paths, prose) and untangling it is the hygiene phase.
@@ -778,6 +786,7 @@ ITEM_WRITABLE = {
     "report_scope", "customer_id", "project_id", "parent_id", "source",
     "start_date", "end_date", "item_type",          # R4.2 — only once migrated in
     "title",                                        # R4.4c — likewise
+    "follow_up_date",                               # R4.9 — likewise
 }
 
 PROJECT_WRITABLE = {"name", "type", "rail_url", "status", "notes", "customer_id",
@@ -786,27 +795,88 @@ PROJECT_WRITABLE = {"name", "type", "rail_url", "status", "notes", "customer_id"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-# --- file links ---------------------------------------------------------------
+# --- links (R4.9) ---------------------------------------------------------------
 #
-# A DB row points at a local file through `external_links`, the table built for exactly
-# this and which carried essentially no file rows until now — one, a template workbook
-# linked by hand in Aug 2026, which is what confirmed the convention was already right.
+# A DB row points at anything outside itself through `external_links` — a Jira ticket, a
+# Monday item, a Slack thread, a Gmail message, a Drive file, a Confluence page, a calendar
+# event, a local file, or any other URL. One table, many links per row (R4.9 plan in
+# TRACKING-PLAN.md).
 #
-#   system                = 'file'
-#   external_container_id = the root alias ('workspace')
-#   external_item_id      = the workspace-relative path
-#   role                  = what the file IS to this row
+#   system                = LINK_SYSTEMS
+#   external_container_id = board / channel / space / calendar / root alias ('workspace')
+#   external_item_id      = the id in that system (a Jira key, a pulse id, a path …)
+#   role                  = LINK_ROLES — what the target IS to this row
+#   url                   = the pasted or known URL; NULL means "build it from the id"
+#   is_primary            = the one link the list opens in one click
+#   role_legacy           = the role spelling before the R4.9 migration, kept for audit
+#   ext_status/ext_updated_at/ext_checked_at = cached state of a Jira ticket (stale view)
 #
-# `external_container_id` is what makes the memory/ root possible later: those files live
-# outside the workspace entirely, so a bare path could never resolve on its own.
-FILE_ROLES = ["source_meeting", "summary", "recap", "weekly_update", "attachment",
-              "reference"]
+# Before the migration the table has none of the new columns; everything here reads them
+# only when they exist, so the page works on either side of `--migrate-links`.
+
+LINK_ROLES = ["tracks", "customer_share", "source", "discussion", "deliverable",
+              "related", "reference"]
+LINK_ROLE_HELP = {
+    "tracks": "the external work item that IS this work — a ticket, epic, REQ or CR",
+    "customer_share": "the customer-facing copy (share board item, customer page)",
+    "source": "where this item came from — a meeting, an email, a thread",
+    "discussion": "where the conversation about it carries on",
+    "deliverable": "something produced for it — an update, report, SOW, sent email",
+    "related": "bears on it but is not it — another ticket, a prior cycle, evidence",
+    "reference": "background — a wiki page, template, sheet",
+}
+# Kept as a name because older callers (weekly.py, hygiene.py) import it.
+FILE_ROLES = LINK_ROLES
+
+LINK_SYSTEMS = ["jira", "confluence", "monday", "slack", "gmail", "gdrive", "gcal",
+                "file", "web"]
+SYSTEM_LABEL = {"jira": "Jira", "confluence": "Confluence", "monday": "Monday",
+                "slack": "Slack", "gmail": "Email", "gdrive": "Drive", "gcal": "Calendar",
+                "file": "File", "web": "Link"}
+_SYSTEM_ALIAS = {"google_sheets": "gdrive", "google_docs": "gdrive", "drive": "gdrive",
+                 "google_drive": "gdrive", "url": "web", "calendar": "gcal"}
+
+# Every role spelling the table held before R4.9 (Nov 10 2026: 55 of them) → the seven.
+# An unknown spelling maps to `reference` and is reported by the migration.
+ROLE_MAP = {
+    **{r: "tracks" for r in (
+        "ticket", "eng_ticket", "dev_ticket", "rel_ticket", "epic", "tam_epic", "eng_epic",
+        "tracking", "rollout_ticket", "analysis_ticket", "task", "follow_up_ticket",
+        "sudo_grant_ticket", "support_ticket", "change_request", "pmo_initiative",
+        "internal_req", "req", "req_board", "sbr_ticket")},
+    **{r: "related" for r in ("evidence", "prior_cycle", "sbr_ticket_duplicate",
+                              "notification")},
+    **{r: "source" for r in ("source_meeting", "source_thread", "source_email",
+                             "gong_call_notification", "meeting", "summary")},
+    **{r: "discussion" for r in ("conversation", "dispatch_thread",
+                                 "dispatch_thread_original", "project_channel")},
+    **{r: "deliverable" for r in ("weekly_update", "recap", "report_artifact", "sow",
+                                  "customer_doc_draft", "sent_email", "published_page")},
+    **{r: "customer_share" for r in ("customer_version",)},
+    **{r: "reference" for r in ("template_workbook", "project_charter", "tracker",
+                                "attachment")},
+}
+_EPICISH = {"epic", "eng_epic", "tam_epic", "pmo_initiative"}
+# Which link the list opens when nobody has picked one: the thing that tracks the work.
+_PRIMARY_ROLE_ORDER = ["tracks", "customer_share", "discussion", "source", "deliverable",
+                       "reference", "related"]
+_PRIMARY_SYS_ORDER = {"jira": 0, "monday": 1}
 
 LINKABLE_TABLES = ("action_items", "projects", "weekly_updates", "sbr_meetings")
+LINK_NEW_COLUMNS = [("url", "TEXT"), ("is_primary", "INTEGER DEFAULT 0"),
+                    ("role_legacy", "TEXT"), ("ext_status", "TEXT"),
+                    ("ext_updated_at", "TEXT"), ("ext_checked_at", "TEXT")]
+ITEM_R49_COLUMNS = [("follow_up_date", "TEXT")]
+MT_PORT = int(os.environ.get("MT_PORT") or 8765)
+STALE_DAYS = 60
+_JIRA_DONE = {"done", "closed", "resolved", "cancelled", "canceled", "won't do",
+              "wont do", "declined", "rejected", "completed"}
 
 # Paths sitting inside free text, for the "we found this, link it?" suggestion.
 _PATH_RE = re.compile(r"((?:Reports|Customers)/[A-Za-z0-9._/-]+?\.md)")
 _DIR_RE = re.compile(r"(Customers/[A-Za-z0-9._-]+/meetings/[A-Za-z0-9._-]+)/?")
+_KEY_RE = re.compile(r"^([A-Z][A-Z0-9]{1,9}-\d+)$")
+_URL_RE = re.compile(r"https?://[^\s<>\"')\]]+")
 
 
 def _docs():
@@ -816,88 +886,461 @@ def _docs():
     return D
 
 
+def norm_role(role: str) -> str:
+    """A canonical role from any spelling, old or new. Raises on an unknown one — a write
+    can never introduce a new spelling (the same rule as status/priority/scope)."""
+    r = (role or "").strip().lower()
+    if r in LINK_ROLES:
+        return r
+    if r in ROLE_MAP:
+        return ROLE_MAP[r]
+    raise ValueError(f"role must be one of: {', '.join(LINK_ROLES)}")
+
+
+def norm_system(system: str) -> str:
+    s = (system or "").strip().lower()
+    s = _SYSTEM_ALIAS.get(s, s)
+    if s not in LINK_SYSTEMS:
+        raise ValueError(f"system must be one of: {', '.join(LINK_SYSTEMS)}")
+    return s
+
+
+def links_ready(conn) -> bool:
+    return "is_primary" in _cols(conn, "external_links")
+
+
+# ---- URLs
+
+def _slack_ts(raw: str) -> str:
+    """'1786455844.757869' or 'p1786455844757869' → 'p1786455844757869'."""
+    r = (raw or "").strip()
+    if r.startswith("p") and r[1:].isdigit():
+        return r
+    if re.fullmatch(r"\d{10}\.\d{6}", r):
+        return "p" + r.replace(".", "")
+    return ""
+
+
+def link_url(system: str, container=None, item=None, url=None) -> str | None:
+    """Where a link opens. A stored URL wins; otherwise built from the id and the sites in
+    config.json. None when it cannot be built (a missing site is not an error) and for
+    local files, which open in mt's own editor instead (see file_href)."""
+    if url:
+        return str(url)
+    s = _SYSTEM_ALIAS.get((system or "").lower(), (system or "").lower())
+    c, i = str(container or "").strip(), str(item or "").strip()
+    jira = getattr(P, "JIRA_SITE", "")
+    if s == "jira" and jira and _KEY_RE.match(i):
+        return f"{jira}/browse/{i}"
+    if s == "confluence" and jira and i.isdigit():
+        return f"{jira}/wiki/pages/viewpage.action?pageId={i}"
+    if s == "monday":
+        site = getattr(P, "MONDAY_SITE", "")
+        if site and c.isdigit():
+            return f"{site}/boards/{c}" + (f"/pulses/{i}" if i.isdigit() and i != c else "")
+        return None
+    if s == "slack":
+        site = getattr(P, "SLACK_SITE", "")
+        if not site:
+            return None
+        if "/" in i:                                  # '<channel>/p1700000000000000'
+            ch, ts = i.split("/", 1)
+            return f"{site}/archives/{ch}" + (f"/{_slack_ts(ts)}" if _slack_ts(ts) else "")
+        if re.fullmatch(r"[CDG][A-Z0-9]{6,}", c):
+            ts = _slack_ts(i)
+            return f"{site}/archives/{c}" + (f"/{ts}" if ts else "")
+        if re.fullmatch(r"[CDG][A-Z0-9]{6,}", i):
+            return f"{site}/archives/{i}"
+        return None
+    if s == "gmail" and re.fullmatch(r"[0-9a-f]{12,20}", i):
+        acct = getattr(P, "GOOGLE_ACCOUNT", "")
+        return ("https://mail.google.com/mail/" + (f"?authuser={acct}" if acct else "u/0/")
+                + f"#all/{i}")
+    if s == "gdrive" and re.fullmatch(r"[\w-]{20,}", i):
+        return f"https://drive.google.com/open?id={i}"
+    if s == "gcal" and i and "@" in c:
+        import base64
+        eid = base64.urlsafe_b64encode(f"{i} {c}".encode()).decode().rstrip("=")
+        return f"https://calendar.google.com/calendar/event?eid={eid}"
+    if s == "web" and re.match(r"https?://", i):
+        return i
+    return None
+
+
+def file_href(root: str, path: str) -> str:
+    """A local file, opened in mt's editor — what a page outside mt (the published
+    tracker) links to. Only works on the machine running `mt web`, which is the point."""
+    from urllib.parse import quote
+    return (f"http://127.0.0.1:{MT_PORT}/files?root={quote(root or 'workspace')}"
+            f"&open={quote(path or '')}")
+
+
+def link_label(system: str, container=None, item=None, notes=None) -> str:
+    """The short text on a chip: the Jira key, the REQ number, the file name — or the
+    system's name when the id means nothing to a reader (a pulse id, a message id)."""
+    s = _SYSTEM_ALIAS.get((system or "").lower(), (system or "").lower())
+    i = str(item or "").strip()
+    if s == "jira" or (s == "monday" and re.match(r"^[A-Z]+-\d+$", i)):
+        return i
+    if s == "file":
+        return i.rstrip("/").split("/")[-1] or i
+    if s == "web":
+        m = re.match(r"https?://([^/]+)", i)
+        return m.group(1).removeprefix("www.") if m else "Link"
+    if s == "slack" and container and not str(container).startswith(("C", "D", "G")):
+        return "Slack"
+    if s == "slack" and i and not _slack_ts(i.split("/")[-1]) and not i.startswith("C"):
+        return "#" + i.lstrip("#")
+    return SYSTEM_LABEL.get(s, s.title() or "Link")
+
+
+def parse_link(text: str) -> dict:
+    """Whatever was pasted into "+ Add link" → {system, container, item, url}.
+
+    Takes a URL from any of the systems above, a bare ticket key (ABC-123), or a
+    workspace-relative path. Raises ValueError with a readable message otherwise."""
+    t = (text or "").strip().strip("<>").strip()
+    if not t:
+        raise ValueError("paste a URL, a ticket key like ABC-123, or a workspace path")
+    m = _KEY_RE.match(t.upper()) if " " not in t else None
+    if m and "/" not in t:
+        return {"system": "jira", "container": t.split("-")[0].upper(),
+                "item": m.group(1), "url": None}
+    if re.match(r"https?://", t):
+        u = t
+        m = re.search(r"\.atlassian\.net/(?:browse/|.*[?&]selectedIssue=|servicedesk/"
+                      r"customer/portal/\d+/)([A-Z][A-Z0-9]+-\d+)", u)
+        if m:
+            return {"system": "jira", "container": m.group(1).split("-")[0],
+                    "item": m.group(1), "url": u}
+        m = re.search(r"\.atlassian\.net/wiki/(?:spaces/([^/]+)/)?pages/(?:edit-v2/)?(\d+)", u) \
+            or re.search(r"\.atlassian\.net/wiki/.*[?&]pageId=(\d+)", u)
+        if m:
+            sp, pid = (m.group(1), m.group(2)) if m.re.groups == 2 else (None, m.group(1))
+            return {"system": "confluence", "container": sp, "item": pid, "url": u}
+        m = re.search(r"\.monday\.com/boards/(\d+)(?:/views/\d+)?(?:/pulses/(\d+))?", u)
+        if m:
+            return {"system": "monday", "container": m.group(1),
+                    "item": m.group(2) or m.group(1), "url": u}
+        m = re.search(r"\.slack\.com/archives/([A-Z0-9]+)(?:/(p\d+))?", u)
+        if m:
+            ts = m.group(2)
+            item = (ts[1:-6] + "." + ts[-6:]) if ts else m.group(1)
+            return {"system": "slack", "container": m.group(1), "item": item, "url": u}
+        m = re.search(r"mail\.google\.com/mail/.*#[^?]*?/([A-Za-z0-9]{12,})(?:\?.*)?$", u)
+        if m:
+            return {"system": "gmail", "container": None, "item": m.group(1), "url": u}
+        m = (re.search(r"docs\.google\.com/(?:document|spreadsheets|presentation|forms|"
+                       r"drawings)/(?:u/\d+/)?d/([\w-]{20,})", u)
+             or re.search(r"drive\.google\.com/(?:file/d/|drive/(?:u/\d+/)?folders/)([\w-]{20,})", u)
+             or re.search(r"drive\.google\.com/(?:open|uc)\?(?:.*&)?id=([\w-]{20,})", u))
+        if m:
+            return {"system": "gdrive", "container": None, "item": m.group(1), "url": u}
+        m = re.search(r"calendar\.google\.com/.*[?&]eid=([\w-]+)", u)
+        if m:
+            return {"system": "gcal", "container": None, "item": m.group(1), "url": u}
+        if len(u) > 1000:
+            raise ValueError("that URL is over 1000 characters")
+        return {"system": "web", "container": None, "item": u, "url": u}
+    # A local file: a workspace-relative path the editor can open.
+    path = t.lstrip("/")
+    ws = str(WORKSPACE).rstrip("/") + "/"
+    if t.startswith(ws):
+        path = t[len(ws):]
+    try:
+        ok = _docs().resolve("workspace", path) is not None
+    except Exception:
+        ok = False
+    if ok:
+        return {"system": "file", "container": "workspace", "item": path, "url": None}
+    raise ValueError("not a link mt recognizes — paste a full URL (https://…), a ticket "
+                     "key like ABC-123, or a path inside the workspace that exists")
+
+
+# ---- reading
+
+def _primary_key(l: dict):
+    """Sort key: lower = a better default primary."""
+    role = l.get("role") or ""
+    role = ROLE_MAP.get(role, role)
+    r = _PRIMARY_ROLE_ORDER.index(role) if role in _PRIMARY_ROLE_ORDER else 99
+    legacy = l.get("role_legacy") or l.get("role") or ""
+    return (r, _PRIMARY_SYS_ORDER.get(l.get("system"), 9),
+            0 if legacy in _EPICISH else 1, l.get("id") or 0)
+
+
+def _shape(l: dict) -> dict:
+    """A link row as the pages want it: href (None for a local file), label, canonical role."""
+    d = dict(l)
+    sysn = _SYSTEM_ALIAS.get(d.get("system") or "", d.get("system") or "")
+    d["role"] = ROLE_MAP.get(d.get("role") or "", d.get("role"))
+    d["is_primary"] = int(d.get("is_primary") or 0)
+    d["file"] = sysn == "file"
+    d["href"] = None if d["file"] else link_url(sysn, d.get("external_container_id"),
+                                                 d.get("external_item_id"), d.get("url"))
+    d["label"] = link_label(sysn, d.get("external_container_id"),
+                            d.get("external_item_id"), d.get("notes"))
+    return d
+
+
 def links_for(table: str, local_id: int, system: str = "") -> list[dict]:
-    """Links on one row. `system` filters ('file' for just the local ones)."""
+    """Links on one row, primary first. `system` filters ('file' for just the local ones)."""
     conn = _connect()
     if conn is None:
         return []
     try:
+        have = _cols(conn, "external_links")
+        extra = [c for c, _ in LINK_NEW_COLUMNS if c in have]
         sql = ("SELECT id, local_table, local_id, system, role, external_container_id, "
-               "external_item_id, notes, created_at FROM external_links "
-               "WHERE local_table=? AND local_id=?")
+               "external_item_id, notes, created_at"
+               + "".join(", " + c for c in extra)
+               + " FROM external_links WHERE local_table=? AND local_id=?")
         args = [str(table), int(local_id)]
         if system:
             sql += " AND system=?"
             args.append(system)
-        return [{k: r[k] for k in r.keys()}
-                for r in conn.execute(sql + " ORDER BY id", args)]
+        rows = [_shape({k: r[k] for k in r.keys()}) for r in conn.execute(sql, args)]
+        if rows and not any(r["is_primary"] for r in rows):
+            min(rows, key=_primary_key)["is_primary"] = 1     # pre-migration: computed
+        rows.sort(key=lambda r: (-r["is_primary"], _primary_key(r)))
+        return rows
     except Exception:
         return []
     finally:
         conn.close()
 
 
+def primary_links(conn, ids, table: str = "action_items") -> dict:
+    """{local_id: {label, href, system, role, file, root, path, n, notes}} — the one
+    link each row opens from a list, plus how many it has in all. One query for a page."""
+    ids = [int(i) for i in ids or []]
+    if not ids:
+        return {}
+    have = _cols(conn, "external_links")
+    if not have:
+        return {}
+    extra = [c for c in ("url", "is_primary", "role_legacy") if c in have]
+    out: dict[int, list] = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        for r in conn.execute(
+                "SELECT id, local_id, system, role, external_container_id, external_item_id, "
+                "notes" + "".join(", " + c for c in extra) + " FROM external_links "
+                f"WHERE local_table=? AND local_id IN ({', '.join('?' * len(chunk))})",
+                [table] + chunk):
+            out.setdefault(r["local_id"], []).append({k: r[k] for k in r.keys()})
+    res = {}
+    for lid, ls in out.items():
+        best = next((l for l in ls if l.get("is_primary")), None) or min(ls, key=_primary_key)
+        s = _shape(best)
+        res[lid] = {"id": s["id"], "label": s["label"], "href": s["href"],
+                    "system": _SYSTEM_ALIAS.get(s["system"], s["system"]), "role": s["role"],
+                    "file": s["file"], "root": s.get("external_container_id") or "workspace",
+                    "path": s.get("external_item_id") if s["file"] else None,
+                    "notes": (s.get("notes") or "")[:200], "n": len(ls)}
+    return res
+
+
 def _role_for(path: str) -> str:
     p = (path or "").lower()
-    if "/monthly-recaps/" in p:
-        return "recap"
-    if "/weekly-updates/" in p:
-        return "weekly_update"
+    if "/monthly-recaps/" in p or "/weekly-updates/" in p:
+        return "deliverable"
     if p.endswith("/summary.md"):
-        return "source_meeting"
+        return "source"
     return "reference"
 
 
-def add_link(table: str, local_id: int, path: str, role: str = "reference",
-             root: str = "workspace", notes: str = "") -> dict:
-    """Point a row at a local file. Idempotent — the table already has a unique index on
-    (local_table, local_id, system, role, external_item_id), so re-adding is a no-op."""
+# ---- writing
+
+def _log_event(conn, item_id: int, field: str, old, new, by: str):
+    """One item_events row for a change that lives in another table (a link, a
+    predecessor, a "with" person), so the item's record says who did what and the change
+    feed refreshes the row. It carries the item's current rev and does NOT bump it: the
+    item row itself did not change, and bumping it would make the Gantt's own Save (dates
+    + links in one transaction) conflict with itself."""
+    if not r42_ready(conn):
+        return
+    rev = (conn.execute("SELECT COALESCE(rev,0) FROM action_items WHERE id=?",
+                        (int(item_id),)).fetchone() or [0])[0]
+    conn.execute("INSERT INTO item_events (item_id, field, old, new, at, by, rev) "
+                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (int(item_id), field, old, new, _now(), by, rev))
+
+
+def _log_link(conn, table: str, local_id: int, old, new, by: str):
+    """Link changes go in item_events (field 'link') so the change feed refreshes the row
+    and the history says who linked what. Only action items have an event log."""
+    if table != "action_items":
+        return
+    _log_event(conn, local_id, "link", old, new, by)
+
+
+def _desc(l) -> str:
+    return f"{l['role']} {l['system']}:{l['external_item_id']}"[:300]
+
+
+def _repick_primary(conn, table: str, local_id: int):
+    """Make sure a row with links has exactly one primary (the best by rank)."""
+    if not links_ready(conn):
+        return
+    rows = [dict(r) for r in conn.execute(
+        "SELECT id, system, role, role_legacy, is_primary FROM external_links "
+        "WHERE local_table=? AND local_id=?", (table, int(local_id)))]
+    if not rows or any(r["is_primary"] for r in rows):
+        return
+    best = min(rows, key=_primary_key)
+    conn.execute("UPDATE external_links SET is_primary=1, updated_at=? WHERE id=?",
+                 (_now(), best["id"]))
+
+
+def add_link(table: str, local_id: int, path: str = "", role: str = "reference",
+             root: str = "workspace", notes: str = "", text: str = "",
+             primary: bool | None = None, by: str = "mt", system: str = "",
+             item: str = "", container: str = "", url: str = "") -> dict:
+    """Link a row to something. Three ways in:
+      * `text` — whatever was pasted (URL, ticket key, workspace path), parsed;
+      * `system` + `item` (+ `container`, `url`) — explicit, for scripts;
+      * `path` — a local file, the original R2 form.
+    Idempotent on (row, system, item): linking the same thing again updates its role (and
+    fills a blank URL) instead of adding a second row. The first link on a row becomes
+    its primary; `primary=True` makes this one primary."""
     table = str(table or "").strip()
     if table not in LINKABLE_TABLES:
         raise ValueError(f"cannot link from {table!r}")
-    role = (role or "reference").strip()
-    if role not in FILE_ROLES:
-        raise ValueError(f"role must be one of: {', '.join(FILE_ROLES)}")
-    path = (path or "").strip().lstrip("/")
-    if not path:
-        raise ValueError("a path is required")
-    # The file must be one the editor can actually open, or the link is a dead end.
-    if _docs().resolve(root, path) is None:
-        raise ValueError("that file is not one the editor can open")
+    role = norm_role(role or "reference")
+    if text:
+        p = parse_link(text)
+    elif system:
+        s = norm_system(system)
+        if not (item or url):
+            raise ValueError("an id or a URL is required")
+        p = {"system": s, "container": container or None,
+             "item": (item or url).strip(), "url": url or None}
+    else:
+        path = (path or "").strip().lstrip("/")
+        if not path:
+            raise ValueError("a path is required")
+        p = {"system": "file", "container": root or "workspace", "item": path, "url": None}
+    if p["system"] == "file":
+        # The file must be one the editor can actually open, or the link is a dead end.
+        if _docs().resolve(p["container"] or "workspace", p["item"]) is None:
+            raise ValueError("that file is not one the editor can open")
 
     conn = _connect_w()
     try:
+        conn.execute("BEGIN IMMEDIATE")
         if not conn.execute(f"SELECT 1 FROM {table} WHERE id=?",
                             (int(local_id),)).fetchone():
             raise ValueError(f"no {table} #{local_id}")
-        conn.execute(
-            "INSERT OR IGNORE INTO external_links "
-            "(local_table, local_id, system, role, external_container_id, "
-            " external_item_id, notes) VALUES (?,?,'file',?,?,?,?)",
-            (table, int(local_id), role, root, path,
-             (notes or "").strip()[:400] or None))
+        ready = links_ready(conn)
+        same = conn.execute(
+            "SELECT * FROM external_links WHERE local_table=? AND local_id=? AND system=? "
+            "AND external_item_id=? ORDER BY id LIMIT 1",
+            (table, int(local_id), p["system"], p["item"])).fetchone()
+        now = _now()
+        if same:
+            lid, existed = same["id"], True
+            sets, args = ["updated_at=?"], [now]
+            if ROLE_MAP.get(same["role"], same["role"]) != role:
+                sets.append("role=?")
+                args.append(role)
+            if ready and p.get("url") and not same["url"]:
+                sets.append("url=?")
+                args.append(p["url"])
+            if notes and not same["notes"]:
+                sets.append("notes=?")
+                args.append(notes.strip()[:400])
+            conn.execute(f"UPDATE external_links SET {', '.join(sets)} WHERE id=?",
+                         args + [lid])
+        else:
+            existed = False
+            row = {"local_table": table, "local_id": int(local_id), "system": p["system"],
+                   "role": role, "external_container_id": p["container"],
+                   "external_item_id": p["item"],
+                   "notes": (notes or "").strip()[:400] or None,
+                   "created_at": now, "updated_at": now}
+            if ready:
+                row["url"] = p.get("url")
+            lid = conn.execute(
+                f"INSERT INTO external_links ({', '.join(row)}) VALUES "
+                f"({', '.join('?' * len(row))})", list(row.values())).lastrowid
+            _log_link(conn, table, local_id, None,
+                      f"+ {role} {p['system']}:{p['item']}"[:300], by)
+        if ready:
+            if primary:
+                _set_primary(conn, lid, by)
+            else:
+                _repick_primary(conn, table, local_id)
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
-    return {"ok": True, "path": path, "role": role}
+    return {"ok": True, "id": lid, "existed": existed, "system": p["system"],
+            "item": p["item"], "role": role, "path": p["item"]}
 
 
-def remove_link(link_id: int) -> dict:
-    """Unlink. This DELETEs the row, a deliberate and narrow exception to the never-delete
-    rule: a link is a pointer, not a record of work or of a person, and a wrong one has to
-    be removable or the feature is unusable. Confined to `system='file'` — jira and monday
-    links carry provenance and are refused here."""
+def _set_primary(conn, link_id: int, by: str):
+    row = conn.execute("SELECT * FROM external_links WHERE id=?", (int(link_id),)).fetchone()
+    if not row:
+        raise ValueError("no such link")
+    if row["is_primary"]:
+        return row
+    now = _now()
+    conn.execute("UPDATE external_links SET is_primary=0, updated_at=? WHERE local_table=? "
+                 "AND local_id=? AND is_primary=1", (now, row["local_table"], row["local_id"]))
+    conn.execute("UPDATE external_links SET is_primary=1, updated_at=? WHERE id=?",
+                 (now, int(link_id)))
+    _log_link(conn, row["local_table"], row["local_id"], None,
+              f"★ {row['system']}:{row['external_item_id']}"[:300], by)
+    return row
+
+
+def set_primary_link(link_id: int, by: str = "mt") -> dict:
     conn = _connect_w()
     try:
-        row = conn.execute("SELECT system FROM external_links WHERE id=?",
+        if not links_ready(conn):
+            raise RuntimeError("a primary link needs the R4.9 migration (--migrate-links)")
+        conn.execute("BEGIN IMMEDIATE")
+        _set_primary(conn, link_id, by)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+def remove_link(link_id: int, by: str = "mt") -> dict:
+    """Unlink. This DELETEs the row, a deliberate and narrow exception to the never-delete
+    rule: a link is a pointer, not a record of work or of a person, and a wrong one has to
+    be removable or the feature is unusable. Every removal is written to item_events
+    (field 'link', the old value = what it pointed at), which is the provenance the
+    pre-R4.9 rule ("only file links") was protecting. Before the migration, only file
+    links can be removed, as before."""
+    conn = _connect_w()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM external_links WHERE id=?",
                            (int(link_id),)).fetchone()
         if not row:
             raise ValueError("no such link")
-        if row["system"] != "file":
-            raise ValueError("only file links can be removed here (this one is "
-                             f"{row['system']!r} — remove it where it was created)")
+        ready = links_ready(conn)
+        if not ready and row["system"] != "file":
+            raise ValueError("only file links can be removed here until the R4.9 "
+                             f"migration (this one is {row['system']!r})")
         conn.execute("DELETE FROM external_links WHERE id=?", (int(link_id),))
+        _log_link(conn, row["local_table"], row["local_id"],
+                  f"- {_desc(row)}" + (f" ({row['notes'][:120]})" if row["notes"] else ""),
+                  None, by)
+        if ready and row["is_primary"]:
+            _repick_primary(conn, row["local_table"], row["local_id"])
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
     return {"ok": True}
@@ -933,8 +1376,282 @@ def suggest_links(table: str, local_id: int) -> list[dict]:
         if p in have or p in seen or D.resolve("workspace", p) is None:
             continue
         seen.add(p)
-        out.append({"path": p, "role": "source_meeting"})
+        out.append({"path": p, "role": "source"})
     return out
+
+
+# ---- stale tickets (the #1004 review, automated)
+
+def jira_keys(conn, live_only: bool = True) -> list[str]:
+    """Distinct Jira keys linked from action items (live ones only, by default)."""
+    sql = ("SELECT DISTINCT l.external_item_id FROM external_links l "
+           "JOIN action_items a ON a.id = l.local_id AND l.local_table='action_items' "
+           "WHERE l.system='jira'")
+    if live_only:
+        sql += f" AND COALESCE(a.status,'') NOT IN {_DONE_SQL}"
+    return sorted(k for (k,) in conn.execute(sql) if _KEY_RE.match(k or ""))
+
+
+def record_link_activity(acts: dict, by: str = "mt") -> dict:
+    """Cache what Jira says about tickets: {key: {"status": .., "updated": ISO}}. Writes
+    every link row for that key. A key Jira did not return (deleted, no access) is stamped
+    checked with status '(not found)' so it shows up rather than silently looking fresh."""
+    conn = _connect_w()
+    try:
+        if not links_ready(conn):
+            raise RuntimeError("the stale view needs the R4.9 migration (--migrate-links)")
+        now, n = _now(), 0
+        for key, a in (acts or {}).items():
+            a = a or {}
+            n += conn.execute(
+                "UPDATE external_links SET ext_status=?, ext_updated_at=?, ext_checked_at=? "
+                "WHERE system='jira' AND external_item_id=?",
+                (a.get("status") or "(not found)", (a.get("updated") or "")[:19] or None,
+                 now, key)).rowcount
+        conn.commit()
+        return {"ok": True, "keys": len(acts or {}), "rows": n, "at": now}
+    finally:
+        conn.close()
+
+
+def stale_links(days: int = STALE_DAYS, today: dt.date | None = None) -> dict:
+    """Live items whose Jira ticket(s) have gone quiet. Three lists:
+      idle       — ticket not updated in `days`+ days (and not finished)
+      done       — ticket finished, item still open: close candidates
+      unchecked  — linked but never read from Jira (run Refresh)
+    Only `tracks` and `related` links count: a ticket mentioned as a deliverable or a
+    source says nothing about whether the work moved."""
+    out = {"idle": [], "done": [], "unchecked": [], "days": int(days), "ready": False,
+           "checked_at": None}
+    conn = _connect()
+    if conn is None:
+        return out
+    try:
+        if not links_ready(conn):
+            return out
+        out["ready"] = True
+        today = today or dt.date.today()
+        cut = (today - dt.timedelta(days=int(days))).isoformat()
+        have = _cols(conn, "action_items")
+        title = "a.title" if "title" in have else "NULL"
+        rows = conn.execute(
+            f"SELECT l.local_id AS item_id, l.external_item_id AS key, l.role, "
+            f"l.role_legacy, l.ext_status, l.ext_updated_at, l.ext_checked_at, l.url, "
+            f"l.external_container_id, {title} AS title, a.description, a.status, "
+            f"a.owner, a.customer_id FROM external_links l JOIN action_items a "
+            f"ON a.id = l.local_id AND l.local_table='action_items' "
+            f"WHERE l.system='jira' AND COALESCE(a.status,'') NOT IN {_DONE_SQL} "
+            f"ORDER BY l.local_id, l.external_item_id").fetchall()
+        cmap = _customer_map(conn)
+        last = None
+        for r in rows:
+            r = dict(r)
+            if ROLE_MAP.get(r["role"], r["role"]) not in ("tracks", "related"):
+                continue
+            last = max(last or "", r["ext_checked_at"] or "") or last
+            rec = {"item_id": r["item_id"], "key": r["key"],
+                   "href": link_url("jira", None, r["key"], r["url"]),
+                   "ext_status": r["ext_status"], "ext_updated_at": r["ext_updated_at"],
+                   "title": label(r), "status": r["status"], "owner": r["owner"],
+                   "customer": cmap.get(r["customer_id"])}
+            if not r["ext_checked_at"]:
+                out["unchecked"].append(rec)
+                continue
+            st = (r["ext_status"] or "").strip().lower()
+            if st in _JIRA_DONE:
+                out["done"].append(rec)
+                continue
+            up = (r["ext_updated_at"] or "")[:10]
+            if st == "(not found)" or (up and up < cut):
+                try:
+                    rec["idle_days"] = (today - dt.date.fromisoformat(up)).days if up else None
+                except ValueError:
+                    rec["idle_days"] = None
+                out["idle"].append(rec)
+        out["idle"].sort(key=lambda x: -(x.get("idle_days") or 10 ** 6))
+        out["checked_at"] = last
+        return out
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+        return out
+    finally:
+        conn.close()
+
+
+def stale_item_ids(days: int = STALE_DAYS) -> dict:
+    """{item id: [reason chips]} — what the list's "Stale tickets" view filters on."""
+    s = stale_links(days)
+    out: dict[int, list] = {}
+    for kind in ("idle", "done"):
+        for r in s[kind]:
+            chip = (f"{r['key']} · idle {r['idle_days']}d" if kind == "idle" and
+                    r.get("idle_days") is not None else
+                    f"{r['key']} · {r['ext_status']}")
+            out.setdefault(r["item_id"], []).append(
+                {"key": r["key"], "href": r["href"], "kind": kind, "text": chip,
+                 "status": r["ext_status"]})
+    return out
+
+
+# ---- the migration
+
+def migrate_links(db_path) -> list[str]:
+    """R4.9, on `db_path`. Additive and idempotent:
+      1. the new external_links columns, and action_items.follow_up_date (+ index, trigger)
+      2. system aliases folded (google_sheets → gdrive, its URL kept)
+      3. every role mapped to the seven (old spelling kept in role_legacy); two rows that
+         now say the same thing about the same target fold into the older one
+      4. a URL already written in a link's notes, for the same target, becomes its url
+      5. one primary per row, by _primary_key
+      6. the two unique indexes (one primary per row; one row per target)
+      7. follow_up_date ← due_date on live items that have none yet (due_date untouched)
+    Returns a list of what it did."""
+    conn = sqlite3.connect(str(db_path), timeout=TIMEOUT)
+    conn.row_factory = sqlite3.Row
+    done: list[str] = []
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        have = _cols(conn, "external_links")
+        if not have:
+            raise RuntimeError("no external_links table on this DB")
+        for col, typ in LINK_NEW_COLUMNS:
+            if col not in have:
+                conn.execute(f"ALTER TABLE external_links ADD COLUMN {col} {typ}")
+                done.append(f"external_links.{col}")
+        ihave = _cols(conn, "action_items")
+        for col, typ in ITEM_R49_COLUMNS:
+            if col not in ihave:
+                conn.execute(f"ALTER TABLE action_items ADD COLUMN {col} {typ}")
+                done.append(f"action_items.{col}")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_action_items_follow_up_date "
+                     "ON action_items(follow_up_date)")
+        if r42_ready(conn) and not conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name='trg_ai_ev_follow_up_date'").fetchone():
+            f = "follow_up_date"
+            conn.execute(f"""
+CREATE TRIGGER trg_ai_ev_{f} AFTER UPDATE OF {f} ON action_items
+WHEN OLD.{f} IS NOT NEW.{f}
+BEGIN
+  INSERT INTO item_events (item_id, field, old, new, at, by, rev)
+  VALUES (NEW.id, '{f}', OLD.{f}, NEW.{f}, {_NOW_SQL}, {_BY_SQL}, COALESCE(OLD.rev, 0));
+END""")
+            done.append("trigger trg_ai_ev_follow_up_date")
+
+        # 2. systems
+        for r in conn.execute("SELECT * FROM external_links WHERE system='google_sheets'"
+                              ).fetchall():
+            sid = r["external_container_id"] or r["external_item_id"]
+            gid = r["external_item_id"] if r["external_container_id"] else ""
+            conn.execute("UPDATE external_links SET system='gdrive', external_container_id="
+                         "NULL, external_item_id=?, url=COALESCE(url, ?) WHERE id=?",
+                         (sid, f"https://docs.google.com/spreadsheets/d/{sid}/edit"
+                               + (f"#{gid}" if gid else ""), r["id"]))
+            done.append(f"link {r['id']}: google_sheets → gdrive")
+        for alias, real in _SYSTEM_ALIAS.items():
+            if alias == "google_sheets":
+                continue
+            n = conn.execute("UPDATE external_links SET system=? WHERE system=?",
+                             (real, alias)).rowcount
+            if n:
+                done.append(f"{n} link(s): system {alias} → {real}")
+
+        # 3. roles, folding duplicates
+        rows = [dict(r) for r in conn.execute("SELECT * FROM external_links ORDER BY id")]
+        unknown = sorted({r["role"] for r in rows
+                          if r["role"] not in LINK_ROLES and r["role"] not in ROLE_MAP})
+        if unknown:
+            done.append(f"unknown role(s) mapped to reference: {', '.join(unknown)}")
+        groups: dict[tuple, list] = {}
+        for r in rows:
+            groups.setdefault((r["local_table"], r["local_id"], r["system"],
+                               r["external_item_id"]), []).append(r)
+        mapped = folded = 0
+        for g in groups.values():
+            keep = g[0]
+            new_roles = [r["role"] if r["role"] in LINK_ROLES
+                         else ROLE_MAP.get(r["role"], "reference") for r in g]
+            best = min(new_roles, key=lambda x: _PRIMARY_ROLE_ORDER.index(x))
+            legacy = keep["role_legacy"] or (keep["role"] if keep["role"] not in LINK_ROLES
+                                             else None)
+            notes = keep["notes"]
+            for r in g[1:]:
+                if r["notes"] and r["notes"] not in (notes or ""):
+                    notes = f"{notes} | {r['notes']}" if notes else r["notes"]
+                if r["role"] not in LINK_ROLES:
+                    legacy = f"{legacy}+{r['role']}" if legacy else r["role"]
+                conn.execute("DELETE FROM external_links WHERE id=?", (r["id"],))
+                folded += 1
+                done.append(f"link {r['id']} folded into {keep['id']} "
+                            f"({keep['local_table']} #{keep['local_id']} "
+                            f"{keep['system']}:{keep['external_item_id']})")
+            if keep["role"] != best or legacy != keep["role_legacy"] or notes != keep["notes"]:
+                conn.execute("UPDATE external_links SET role=?, role_legacy=?, notes=? "
+                             "WHERE id=?", (best, legacy, notes, keep["id"]))
+                mapped += 1
+        if mapped:
+            done.append(f"{mapped} link(s) moved to the seven roles")
+
+        # 4. URLs already written down in notes
+        nurl = 0
+        for r in conn.execute("SELECT id, system, external_item_id, notes FROM external_links "
+                              "WHERE url IS NULL AND notes LIKE '%http%'").fetchall():
+            for u in _URL_RE.findall(r["notes"] or ""):
+                try:
+                    p = parse_link(u.rstrip(".,;"))
+                except ValueError:
+                    continue
+                if p["system"] == r["system"] and (p["item"] == r["external_item_id"]
+                                                   or r["system"] == "web"):
+                    conn.execute("UPDATE external_links SET url=? WHERE id=?",
+                                 (p["url"], r["id"]))
+                    nurl += 1
+                    break
+        if nurl:
+            done.append(f"{nurl} url(s) taken from link notes")
+
+        # 5. primaries
+        npri = 0
+        for (t, i) in conn.execute("SELECT DISTINCT local_table, local_id FROM external_links "
+                                   "GROUP BY local_table, local_id "
+                                   "HAVING max(COALESCE(is_primary,0)) = 0").fetchall():
+            ls = [dict(r) for r in conn.execute(
+                "SELECT id, system, role, role_legacy FROM external_links "
+                "WHERE local_table=? AND local_id=?", (t, i))]
+            conn.execute("UPDATE external_links SET is_primary=1 WHERE id=?",
+                         (min(ls, key=_primary_key)["id"],))
+            npri += 1
+        if npri:
+            done.append(f"{npri} primary link(s) picked")
+
+        # 6. indexes
+        for name, sql in (
+                ("ux_external_links_primary",
+                 "CREATE UNIQUE INDEX ux_external_links_primary ON external_links"
+                 "(local_table, local_id) WHERE is_primary=1"),
+                ("ux_external_links_target",
+                 "CREATE UNIQUE INDEX ux_external_links_target ON external_links"
+                 "(local_table, local_id, system, external_item_id)")):
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE name=?",
+                                (name,)).fetchone():
+                conn.execute(sql)
+                done.append(f"index {name}")
+
+        # 7. follow-up dates
+        by = (", updated_by='r49-migration'" if "updated_by" in _cols(conn, "action_items")
+              else "")
+        n = conn.execute(
+            f"UPDATE action_items SET follow_up_date=due_date{by} "
+            "WHERE COALESCE(follow_up_date,'')='' AND COALESCE(due_date,'')<>'' "
+            f"AND COALESCE(status,'') NOT IN {_DONE_SQL}").rowcount
+        if n:
+            done.append(f"{n} live item(s): follow_up_date ← due_date")
+        conn.commit()
+        return done
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # --------------------------------------------------------------------- plumbing
@@ -1054,7 +1771,13 @@ def vocab() -> dict:
         "entry_author": _entry_author(),
         "account_codes": ACCOUNT_CODE,
         "internal_code": INTERNAL_CODE,
-        "due_filters": DUE_FILTERS,
+        "due_filters": [f for f in DUE_FILTERS
+                        if f["key"] != "followup" or _has_follow_up()],
+        "link_roles": LINK_ROLES,
+        "link_role_help": LINK_ROLE_HELP,
+        "links_ready": _has_links(),
+        "follow_up": _has_follow_up(),
+        "stale_days": STALE_DAYS,
         "dep_filters": DEP_FILTERS,
         "project": {"type": PROJECT_TYPE, "status": PROJECT_STATUS,
                     "priority": PRIORITY, "legacy": PROJECT_LEGACY,
@@ -1142,6 +1865,7 @@ def _decorate(d: dict, cmap: dict) -> dict:
 #   key: (label, column, natural direction, how the value ranks)
 SORTS = {
     "due":      ("Due", "due_date", "asc", "text"),
+    "follow_up": ("Follow-up", "follow_up_date", "asc", "text"),   # R4.9
     "start":    ("Start", "start_date", "asc", "text"),
     "priority": ("Priority", "priority", "asc", "priority"),
     "status":   ("Status", "status", "asc", "status"),
@@ -1170,6 +1894,26 @@ def _has_p7() -> bool:
         return False
     try:
         return p7_ready(conn)
+    finally:
+        conn.close()
+
+
+def _has_follow_up() -> bool:
+    conn = _connect()
+    if conn is None:
+        return False
+    try:
+        return "follow_up_date" in _cols(conn, "action_items")
+    finally:
+        conn.close()
+
+
+def _has_links() -> bool:
+    conn = _connect()
+    if conn is None:
+        return False
+    try:
+        return links_ready(conn)
     finally:
         conn.close()
 
@@ -1274,6 +2018,7 @@ DUE_FILTERS = [
     {"key": "week", "label": "Due this week"},
     {"key": "next14", "label": "Due in the next 14 days"},
     {"key": "none", "label": "No due date"},
+    {"key": "followup", "label": "Follow-up due (today or earlier)"},   # R4.9
 ]
 
 
@@ -1435,6 +2180,9 @@ def _item_where(cmap: dict, q: str = "", customer: str | None = None,
             args += [today, end] + la
         elif due == "none":
             where.append("COALESCE(a.due_date,'') = ''")
+        elif due == "followup":                       # R4.9: the follow-up is due
+            where += ["COALESCE(a.follow_up_date,'') <> ''", "a.follow_up_date <= ?", live]
+            args += [today] + la
         else:
             return None
 
@@ -1470,7 +2218,7 @@ def page_items(q: str = "", customer: str | None = None, status: str | None = No
                with_ids: bool = False, project: str | None = None,
                mine: bool = False, due: str | None = None,
                sort: str = SORT_DEFAULT, direction: str | None = None,
-               dep: str | None = None) -> dict:
+               dep: str | None = None, link: str | None = None) -> dict:
     """One page of items plus the TOTAL that matched, so the page can say "21–40 of 506"
     without fetching 506 rows. The full list is ~2 KB a row — 1.5 MB for all 753 — which
     is why this pages on the server rather than in the browser.
@@ -1531,6 +2279,12 @@ def page_items(q: str = "", customer: str | None = None, status: str | None = No
                 return empty
             keep = {i for i, f in flags.items() if _dep_match(dep, f)}
             slim = [r for r in slim if r["id"] in keep]
+        stale = {}
+        if link:                                   # R4.9 — the stale-ticket view
+            if link != "stale":
+                return empty
+            stale = stale_item_ids()
+            slim = [r for r in slim if r["id"] in stale]
         steps = None
         if seq and project and str(project).isdigit():
             steps = _steps({r["id"] for r in slim}, seq)
@@ -1548,6 +2302,7 @@ def page_items(q: str = "", customer: str | None = None, status: str | None = No
                     f"WHERE a.id IN ({', '.join('?' * len(chunk))})", chunk):
                 full[r["id"]] = {k: r[k] for k in r.keys()}
         withs = people_for(conn, ids) if p7_ready(conn) else {}
+        plinks = primary_links(conn, ids)
         items = []
         for w_ in window:
             d = full.get(w_["id"])
@@ -1561,6 +2316,9 @@ def page_items(q: str = "", customer: str | None = None, status: str | None = No
             if steps:
                 d["step"] = steps.get(d["id"], 1)
             d["with"] = withs.get(d["id"], [])
+            d["plink"] = plinks.get(d["id"])
+            if d["id"] in stale:
+                d["stale"] = stale[d["id"]]
             items.append(_decorate(d, cmap))
         out = {"items": items, "total": total, "ids": None,
                "sort": sort, "dir": direction or SORTS[sort][2], "steps": bool(steps)}
@@ -1591,6 +2349,7 @@ def get_item(iid: int) -> dict | None:
         d["child_count"] = (conn.execute(
             "SELECT count(*) FROM action_items WHERE parent_id=?",
             (int(iid),)).fetchone() or [0])[0]
+        d["plink"] = primary_links(conn, [d["id"]]).get(d["id"])
         return d
     except Exception:
         return None
@@ -1867,7 +2626,7 @@ def _clean(fields: dict, have: list[str], current: dict | None) -> dict:
             cur = (current or {}).get(field)
             data[field] = _validate(field, data[field], cur)
 
-    for field in ("due_date", "start_date", "end_date"):
+    for field in ("due_date", "start_date", "end_date", "follow_up_date"):
         if field in data:
             data[field] = _validate_date(data[field], field)
 
@@ -2959,7 +3718,8 @@ def apply_plan(changes: list[dict], by: str = "mt", links: list[dict] | None = N
                 undo_links.append({"op": "add", "pred": was["pred"], "succ": was["succ"],
                                    "lag": was["lag"], "met_at": was["met_at"]})
             elif kind == "met":
-                was = _dep_met(conn, op.get("id"), bool(op.get("met")), op.get("note") or "")
+                was = _dep_met(conn, op.get("id"), bool(op.get("met")), op.get("note") or "",
+                               by)
                 undo_links.append({"op": "met", "id": int(op.get("id")), "met": was})
             else:
                 raise ValueError(f"unknown link op {kind!r}")
@@ -3069,7 +3829,18 @@ def _dep_add(conn, pred, succ, by: str, lag_days=0, met=None) -> tuple[int, bool
     cur = conn.execute(
         "INSERT INTO action_item_deps (pred_id, succ_id, lag_days, met_at, created_at, "
         "created_by) VALUES (?,?,?,?,?,?)", (pred, succ, lag_days, met, _now(), by))
+    tail = (f" (lag {lag_days} working days)" if lag_days else "") + \
+        (" — met anyway" if met else "")
+    _log_dep(conn, pred, succ, lambda side: (None, f"+ {side}{tail}"), by)
     return cur.lastrowid, False
+
+
+def _log_dep(conn, pred: int, succ: int, texts, by: str):
+    """Log a predecessor change on BOTH items: the successor reads "after #pred", the
+    predecessor "before #succ". `texts(side)` gives (old, new) for one side."""
+    for iid, side in ((succ, f"after #{pred}"), (pred, f"before #{succ}")):
+        old, new = texts(side)
+        _log_event(conn, iid, "dep", old, new, by)
 
 
 def _dep_remove(conn, dep_id, by: str) -> dict:
@@ -3080,19 +3851,27 @@ def _dep_remove(conn, dep_id, by: str) -> dict:
         raise ValueError("that link is already gone — Refresh")
     conn.execute("UPDATE action_item_deps SET removed_at=?, removed_by=? WHERE id=?",
                  (_now(), by, int(dep_id)))
+    _log_dep(conn, row[0], row[1], lambda side: (f"- {side}", None), by)
     return {"pred": row[0], "succ": row[1], "lag": row[2], "met_at": row[3]}
 
 
-def _dep_met(conn, dep_id, met: bool, note: str = "") -> bool:
+def _dep_met(conn, dep_id, met: bool, note: str = "", by: str = "") -> bool:
     """Set or clear met-anyway; returns what it was before."""
-    row = conn.execute("SELECT met_at FROM action_item_deps WHERE id=? AND removed_at IS "
-                       "NULL", (int(dep_id),)).fetchone()
+    row = conn.execute("SELECT met_at, pred_id, succ_id FROM action_item_deps WHERE id=? "
+                       "AND removed_at IS NULL", (int(dep_id),)).fetchone()
     if not row:
         raise ValueError("that link is gone — Refresh")
+    note = ((note or "").strip()[:400] or None) if met else None
     conn.execute("UPDATE action_item_deps SET met_at=?, met_note=? WHERE id=?",
-                 ((_now() if met else None),
-                  ((note or "").strip()[:400] or None) if met else None, int(dep_id)))
-    return bool(row[0])
+                 ((_now() if met else None), note, int(dep_id)))
+    was = bool(row[0])
+    if met:
+        _log_dep(conn, row[1], row[2],
+                 lambda side: (f"{side} — met anyway" if was else side,
+                               f"{side} — met anyway" + (f": {note}" if note else "")), by)
+    elif was:
+        _log_dep(conn, row[1], row[2], lambda side: (f"{side} — met anyway", side), by)
+    return was
 
 
 def add_dep(pred, succ, by: str = "mt", lag_days: int = 0) -> dict:
@@ -3128,7 +3907,7 @@ def set_dep_met(dep_id: int, met: bool, note: str = "", by: str = "mt") -> dict:
     predecessor stays open — its last cleanup can finish after the successor starts."""
     conn = _connect_w()
     try:
-        _dep_met(conn, dep_id, met, note)
+        _dep_met(conn, dep_id, met, note, by)
         conn.commit()
         return {"ok": True}
     except ValueError:
@@ -3283,6 +4062,7 @@ def gantt(project: str | None = None, customer: str | None = None,
                        "start": r.get("start_date") or None,
                        "end": r.get("end_date") or None,
                        "due": r.get("due_date") or None,
+                       "fu": r.get("follow_up_date") or None,
                        "done_at": done_at, "rev": r.get("rev"),
                        "step": steps.get(r["id"]) if steps else None,
                        "blocked": bool(f.get("blocked_by")),
@@ -3307,6 +4087,9 @@ def gantt(project: str | None = None, customer: str | None = None,
         if len(drawn) > cap:
             drawn, out["cut"] = drawn[:cap], True
         out["rows"] = drawn
+        pl = primary_links(conn, [r["id"] for r in drawn])
+        for r in drawn:
+            r["plink"] = pl.get(r["id"])
         shown = {r["id"] for r in drawn}
         if seq:
             items = seq["items"]
@@ -3342,9 +4125,11 @@ def gantt(project: str | None = None, customer: str | None = None,
 # Polled every 15 s by a VISIBLE list or Gantt tab (hidden tabs do not poll), and at once
 # when another mt window says it wrote. Normally the answer is an empty list — a few
 # bytes. item_events catches every writer (mt, the assistant's sqlite3, scripts) because it is
-# fed by triggers, inserts included. Links and project rows have no events, so their
-# state rides along as a short signature: any add / remove / met-anyway / project edit
-# changes it, and the page refetches.
+# fed by triggers, inserts included. Links, predecessors and "with" people written through
+# this module also log an event on the item (_log_event). A writer that touches
+# action_item_deps or projects directly does not, so their state still rides along as a
+# short signature: any add / remove / met-anyway / project edit changes it, and the page
+# refetches.
 
 CHANGES_MAX = 500
 
@@ -3644,15 +4429,22 @@ def set_item_person(item_id, contact_id=None, remove_pid=None, by: str = "mt") -
         if not p7_ready(conn):
             raise RuntimeError("needs the Phase 7 migration first")
         if remove_pid:
+            who = conn.execute("SELECT c.name FROM item_people p JOIN contacts c ON "
+                               "c.id = p.contact_id WHERE p.id=?",
+                               (int(remove_pid),)).fetchone()
             cur = conn.execute("UPDATE item_people SET removed_at=?, removed_by=? WHERE id=? "
                                "AND item_id=? AND removed_at IS NULL",
                                (_now(), by, int(remove_pid), int(item_id)))
+            if cur.rowcount:
+                _log_event(conn, item_id, "with",
+                           f"- {who[0] if who else f'person #{remove_pid}'}", None, by)
             conn.commit()
             if not cur.rowcount:
                 raise ValueError("already removed")
             return {"ok": True}
         cid = int(contact_id)
-        if not conn.execute("SELECT 1 FROM contacts WHERE id=?", (cid,)).fetchone():
+        person = conn.execute("SELECT name FROM contacts WHERE id=?", (cid,)).fetchone()
+        if not person:
             raise ValueError("no such contact")
         own = conn.execute("SELECT owner_contact_id FROM action_items WHERE id=?",
                            (int(item_id),)).fetchone()
@@ -3660,9 +4452,11 @@ def set_item_person(item_id, contact_id=None, remove_pid=None, by: str = "mt") -
             raise ValueError("no such item")
         if own[0] == cid:
             raise ValueError("that person already owns it")
-        conn.execute("INSERT OR IGNORE INTO item_people (item_id, contact_id, role, "
-                     "created_at, created_by) VALUES (?,?,'with',?,?)",
-                     (int(item_id), cid, _now(), by))
+        cur = conn.execute("INSERT OR IGNORE INTO item_people (item_id, contact_id, role, "
+                           "created_at, created_by) VALUES (?,?,'with',?,?)",
+                           (int(item_id), cid, _now(), by))
+        if cur.rowcount:
+            _log_event(conn, item_id, "with", None, f"+ {person[0]}", by)
         conn.commit()
         return {"ok": True}
     finally:
@@ -3847,8 +4641,10 @@ def _main(args: list[str]) -> int:
         return 0
 
     if args and args[0] in ("--migrate-r42", "--r42-rollback", "--migrate-r44c",
-                            "--r44c-rollback", "--migrate-r45b", "--migrate-p7"):
-        phase = ("p7" if "p7" in args[0] else "r45b" if "r45b" in args[0]
+                            "--r44c-rollback", "--migrate-r45b", "--migrate-p7",
+                            "--migrate-links"):
+        phase = ("r49" if args[0] == "--migrate-links" else "p7" if "p7" in args[0]
+                 else "r45b" if "r45b" in args[0]
                  else "r44c" if "r44c" in args[0] else "r42")
         live = "--live" in args[1:]
         drafts = None
@@ -3906,13 +4702,43 @@ def _main(args: list[str]) -> int:
                 print(f"backup failed its check ({ok}) — nothing migrated", file=sys.stderr)
                 return 4
             print(f"backup: {bk}")
-        done = (migrate_r44c(target, drafts) if phase == "r44c"
+        done = (migrate_links(target) if phase == "r49"
+                else migrate_r44c(target, drafts) if phase == "r44c"
                 else migrate_r45b(target) if phase == "r45b"
                 else migrate_p7(target) if phase == "p7" else migrate_r42(target))
         print(f"{target}: {', '.join(done) if done else 'already migrated'}")
-        if phase not in ("r45b", "p7"):      # these add tables only, no triggers
+        if phase == "r49":
+            print("rollback: restore the backup (columns cannot be dropped); the old "
+                  "role of every link is kept in external_links.role_legacy")
+        elif phase not in ("r45b", "p7"):      # these add tables only, no triggers
             print(f"rollback (triggers only): python3 tracking.py --{phase}-rollback "
                   f"{'--live ' if live else ''}{target}")
+        return 0
+
+    if args and args[0] == "--stale":
+        days = int(args[1]) if len(args) > 1 and args[1].isdigit() else STALE_DAYS
+        s = stale_links(days)
+        if not s["ready"]:
+            print("the R4.9 migration is not on this DB (--migrate-links)")
+            return 1
+        print(f"Jira activity last read: {s['checked_at'] or 'never — refresh from mt'}")
+        for kind, head in (("idle", f"quiet {days}+ days"),
+                           ("done", "ticket finished, item still open"),
+                           ("unchecked", "never read from Jira")):
+            print(f"\n{head}: {len(s[kind])}")
+            for r in s[kind][:200]:
+                extra = (f"idle {r['idle_days']}d · " if r.get("idle_days") is not None
+                         else "") + (r.get("ext_status") or "")
+                print(f"  #{r['item_id']:<5} {r['key']:<14} {extra:<28} "
+                      f"{(r['customer'] or '-'):<12} {(r['title'] or '')[:60]}")
+        return 0
+
+    if args and args[0] == "--links":
+        for a in args[1:]:
+            for l in links_for("action_items", int(a.lstrip("#"))):
+                print(f"  #{a.lstrip('#'):<5} {'★' if l['is_primary'] else ' '} "
+                      f"{l['role']:<15} {l['system']:<10} {l['label']:<22} "
+                      f"{l['href'] or ('(local) ' + l['external_item_id'])}")
         return 0
 
     if not args or args[0] == "--stats":

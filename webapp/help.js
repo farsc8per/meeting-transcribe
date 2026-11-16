@@ -104,14 +104,17 @@
      "Experimental and per meeting. Readings trail the talk by 5–30 s."],
 
     ["Name who is talking, live, and have the review page come out right",
-     "In the Room panel the far end splits into Speaker 1, 2, … by voice. ✓ It's X when " +
-     "the “maybe X?” guess is right, ✎ Name to pick anyone, ✎ Not them on a wrong voice " +
-     "match — each card shows what that voice just said. The voice is learned for the " +
-     "rest of the call; ✎ Rename / ✕ Unname if you got it wrong. After the full pass the " +
-     "review page opens with those people filled in, waiting for your Confirm.",
+     "Hit “Open Room ↗” on the recording card (every recording has it). The far end " +
+     "splits into Speaker 1, 2, … by voice, and a voice that matches a saved voiceprint " +
+     "names itself once it has said a few sentences. “It's X” when the “maybe X?” guess " +
+     "is right, ✎ Name to pick anyone, ✎ Not them on a wrong voice match — each card " +
+     "keeps its place and shows the latest thing that voice said. ✓ Confirm the ones " +
+     "you're sure of: after the full pass the review page opens with those already " +
+     "confirmed (verified contacts whose voice clearly matches), and the rest filled in " +
+     "for you to check. ✎ Rename / ✕ Unname / ↺ Unconfirm if you got it wrong.",
      null,
-     "Needs Vocal cues ticked (that's what feeds the Room). Nothing is enrolled — enrol " +
-     "from Review as usual, which is what fixes the next call too."],
+     "Works with or without Vocal cues — without, the Room shows names only. Nothing is " +
+     "enrolled — enrol from Review as usual, which is what fixes the next call too."],
 
     ["Get vocal cues, awards and Best Saying for a meeting I already recorded",
      "Open it in Review and click “Analyze vocal cues”. The Conversation section " +

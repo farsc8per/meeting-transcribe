@@ -74,8 +74,18 @@
   .pick{margin-top:7px;padding:8px;border:1px solid var(--accent);border-radius:8px}
   .pick .plab{font-size:11.5px;color:var(--ink-2);margin-bottom:5px}
   .pick .pquote{font-size:12px;color:var(--ink-2);font-style:italic;margin-bottom:4px}
-  .said{margin-top:6px;font-size:12px;color:var(--ink-2);font-style:italic;line-height:1.35}
-  .said div{margin-top:2px;overflow-wrap:anywhere}
+  /* The latest line, always two lines tall (clamped, padded when short): a card that
+     grows or shrinks as people talk pushes every card below it, and you click the wrong one. */
+  .said{margin-top:6px;font-size:12px;color:var(--ink-2);font-style:italic;line-height:1.35;
+        min-height:calc(2 * 1.35em);overflow-wrap:anywhere;display:-webkit-box;
+        -webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .said .t{font-style:normal;font-family:var(--m);font-size:10.5px;color:var(--ink-3);margin-right:5px}
+  .said.none{color:var(--ink-3)}
+  .who{flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+  .who b{overflow:hidden;text-overflow:ellipsis}
+  .tag.ok{color:var(--ok);border-color:var(--ok)}
+  .acts button.ok{border-color:var(--ok);color:var(--ok)}
+  .mode{font-size:11.5px;color:var(--ink-3);margin-top:3px}
   .pick .prow{display:flex;gap:6px}
   .pick input{flex:1;min-width:0;font:inherit;font-size:13px;padding:4px 7px;border:1px solid var(--line);
        border-radius:6px;background:var(--surface);color:var(--ink)}
@@ -98,10 +108,10 @@
 <body>
 <div class="wrap">
   <div class="hd"><h1>Room</h1><span class="st" id="st">connecting…</span></div>
-  <div class="lag">Each speaker against their own normal. Readings trail the talk by ~5–30 s.</div>
+  <div class="lag" id="lag"></div>
   <div class="key" id="key"></div>
   <div id="box"></div>
-  <div class="foot">Delivery, not feelings and not honesty. Experimental — see REFERENCE.md.</div>
+  <div class="foot" id="foot"></div>
 </div>
 <script>
 // Every name here is file content (voiceprints, the live log): textContent throughout,
@@ -124,14 +134,37 @@ function drawKey(){
   s.appendChild(sw); s.appendChild(document.createTextNode("not enough yet")); k.appendChild(s);
 }
 
+// A redraw between pressing the mouse and letting go swaps the button under the pointer;
+// hold the refresh while a button is down (and, as before, while the picker is open).
+let pressing = false;
+document.addEventListener("pointerdown", () => { pressing = true; }, true);
+document.addEventListener("pointerup", () => { pressing = false; if(pending){ pending = false; if(!picking) draw(lastR); } }, true);
+document.addEventListener("pointercancel", () => { pressing = false; }, true);
+let pending = false;
+
 async function tick(){
   let R;
   try{ R = await fetch("/api/cues/live?session="+encodeURIComponent(sid)).then(r=>r.json()); }
   catch(e){ R = {ok:false, why:"mt web is not answering"}; }
   lastR = R;
-  if(!picking) draw(R);    // never redraw under an open name picker
+  if(picking){}            // never redraw under an open name picker
+  else if(pressing) pending = true;
+  else draw(R);
   clearTimeout(timer);
   timer = setTimeout(tick, R && R.recording ? 2000 : 15000);
+}
+
+// Vocal cues ticked → the full Room (gauges, awards). Not ticked → the same cards with
+// names only: who's talking, what they said last, and the naming buttons.
+function cuesOn(R){ return !!(R && (R.requested || (R.people || []).some(p => p.now))); }
+
+function chrome(R){
+  const on = cuesOn(R);
+  $("#lag").textContent = on ? "Each speaker against their own normal. Readings trail the talk by ~5–30 s."
+                             : "Who's talking. Name a voice, ✓ confirm the ones you're sure of.";
+  $("#foot").textContent = on ? "Delivery, not feelings and not honesty. Experimental — see REFERENCE.md."
+                              : "Vocal cues are off for this recording — gauges and awards are hidden. Names work either way.";
+  $("#key").style.display = on ? "" : "none";
 }
 
 function draw(R){
@@ -140,6 +173,7 @@ function draw(R){
   st.className = "st" + (R && R.recording ? " live" : "");
   st.textContent = R && R.recording ? "● live  " + (R.elapsedText||"") + "  ·  " + (R.session||"")
                  : (R && R.session ? "ended  ·  " + R.session : "not recording");
+  chrome(R);
   if(!R || !R.ok){ box.appendChild(el("div","msg", (R && R.why) || "nothing to show")); return; }
   // Field guide: text from the server (cues.ROOM_GUIDE + the shared gauge entries).
   if(R.guide && R.guide.length){
@@ -153,14 +187,16 @@ function draw(R){
       box.appendChild(dl);
     }
   }
-  if(!R.requested && !R.rows){
-    box.appendChild(el("div","msg", "Vocal cues are off for this recording. Tick “Vocal cues” "
-      + "before starting next time, or analyze this meeting from its review page after the call."));
+  if(!R.recording && !R.rows){
+    box.appendChild(el("div","msg", "Nothing was captured for this panel on this recording. "
+      + "Name its voices on the review page."));
     return;
   }
   if(!R.recording){
     const m=el("div","msg");
-    m.appendChild(document.createTextNode(R.analyzed
+    m.appendChild(document.createTextNode(!cuesOn(R)
+      ? "The call has ended. Your names and ✓ confirmations carry into the review page once transcription finishes. "
+      : R.analyzed
       ? "The call has ended and has been measured properly. "
       : "The call has ended. The full pass measures it properly once transcription finishes. "));
     const a=el("a",null,"Open the review page"); a.href="/review?session="+encodeURIComponent(R.session);
@@ -172,33 +208,17 @@ function draw(R){
       + "a card appears about half a minute after someone talks."));
     return;
   }
-  const aw = awardsBox(R);
-  if(aw) box.appendChild(aw);
-  // An hour-long training separated into 16 cards. Keep the room readable: whoever spoke
-  // in the last 5 minutes (talkers first), you, and anyone you named stay up; the rest
-  // fold under "Earlier voices", remembered open/closed in this browser.
-  const now = R.now || 0, RECENT = 300;
-  const keep = p => !R.recording || p.kind === "you" || p.kind === "named by you" || (now - p.last) <= RECENT;
-  // Stable positions: in a grid, re-sorting by "who's talking" every 2 s made cards jump
-  // across columns. Order of first appearance, you last; the speaking highlight does the
-  // pointing instead.
-  const up = R.people.filter(keep).sort((a, b) =>
-    (a.kind === "you") - (b.kind === "you") || (a.first - b.first));
-  const folded = R.people.filter(p => !keep(p));
+  if(cuesOn(R)){ const aw = awardsBox(R); if(aw) box.appendChild(aw); }
+  // Every card stays where it first appeared, for the whole call (the owner, Nov 9: boxes
+  // "should stay static"). Re-sorting by who's talking made cards jump across columns,
+  // and folding quiet voices away after 5 minutes moved the rest under your pointer — a
+  // click meant for one card landed on another. The speaking highlight does the pointing.
+  // `order` comes from the server: when the card appeared, kept when a voice gets named.
+  const up = R.people.slice().sort((a, b) =>
+    (a.kind === "you") - (b.kind === "you") || ((a.order ?? a.first) - (b.order ?? b.first)));
   const grid = el("div","grid");
   up.forEach(p => grid.appendChild(card(p, R)));
   box.appendChild(grid);
-  if(folded.length){
-    let open = false; try{ open = localStorage.getItem("mt.room.earlier") === "1"; }catch(e){}
-    const t = el("button","gbtn", (open ? "▾ " : "▸ ") + "Earlier voices (" + folded.length + ")");
-    t.onclick = () => { try{ localStorage.setItem("mt.room.earlier", open ? "0" : "1"); }catch(e){} draw(R); };
-    box.appendChild(t);
-    if(open){
-      const g2 = el("div","grid");
-      folded.sort((a, b) => a.first - b.first).forEach(p => g2.appendChild(card(p, R)));
-      box.appendChild(g2);
-    }
-  }
   const nb = namedBox(R);
   if(nb) box.appendChild(nb);
 }
@@ -238,6 +258,7 @@ function card(p, R){
   const w=el("div","who");
   w.appendChild(el("b",null, p.kind==="blended" ? "Them" : p.name));
   if(p.kind==="you") w.appendChild(el("span","tag","you · mic"));
+  else if(p.confirmed) w.appendChild(el("span","tag ok","✓ confirmed"));
   else if(p.kind==="voice match") w.appendChild(el("span","tag","voice match " + (p.match ? p.match.toFixed(2) : "")));
   else if(p.kind==="named by you") w.appendChild(el("span","tag","named by you"));
   else if(p.kind==="near miss") w.appendChild(el("span","tag","near miss " + (p.match ? p.match.toFixed(2) : "") + " — is it?"));
@@ -245,18 +266,21 @@ function card(p, R){
   else w.appendChild(el("span","tag","far end, blended"));
   if(p.speaking && R.recording) w.appendChild(el("span","talk","● speaking"));
   c.appendChild(w);
-  // What they said last: naming someone from what they're talking about beats waiting
-  // for their name to come up. Not on your own card — you know what you said.
-  if(p.kind !== "you" && p.recent && p.recent.length){
-    const said = el("div","said");
-    p.recent.slice(-2).forEach(r => {
-      const t = r.text.length > 110 ? r.text.slice(0, 107) + "…" : r.text;
-      said.appendChild(el("div",null, hms(r.t) + "  “" + t + "”"));
-    });
+  // What they said last — just the latest line, in a box that never changes height:
+  // naming someone from what they're talking about beats waiting for their name to come
+  // up. Not on your own card — you know what you said.
+  if(p.kind !== "you"){
+    const last = (p.recent || []).slice(-1)[0];
+    const said = el("div","said" + (last ? "" : " none"));
+    if(last){
+      said.appendChild(el("span","t", hms(last.t)));
+      said.appendChild(document.createTextNode("“" + last.text + "”"));
+    } else said.textContent = "no words caught yet";
     c.appendChild(said);
   }
   const acts = nameActions(p, R);
   if(acts) c.appendChild(acts);
+  if(!cuesOn(R)) return c;          // names only: no gauges, trend or baseline
 
   const now=p.now||{};
   [["Energy","E","eb",R.words.energy],["Friction","F","fb",R.words.friction]].forEach(([lab,v,b,words])=>{
@@ -280,7 +304,7 @@ function card(p, R){
   if(d.interrupt) f.push("started over someone");
   if(f.length) c.appendChild(el("div","why", "latest: " + f.join("  ·  ")));
 
-  const b=p.baseline;
+  const b=p.baseline || {};
   const basis = p.kind==="blended" ? "vs this call (several far-end voices mixed)"
               : b.kind==="history" ? "vs their normal · " + b.sessions + " other meeting" + (b.sessions===1?"":"s")
               : b.kind==="call" ? "vs this call so far"
@@ -306,31 +330,52 @@ function nameActions(p, R){
   const k = cardKey(p);
   if(picking && picking.key === k) return picker(p, R);
   const a = el("div","acts");
-  const btn = (label, title, fn) => { const b=el("button",null,label); b.title=title; b.onclick=fn; a.appendChild(b); };
+  const btn = (label, title, fn, cls) => { const b=el("button",cls||null,label); b.title=title; b.onclick=fn; a.appendChild(b); };
+  // ✓ is kept for Confirm alone: picking a name is a guess you can change; ✓ is "that's
+  // them", and it carries through to the review page (livenames.apply_after_pass).
+  const confirmBtn = () => btn("✓ Confirm", "Yes, that's " + p.name + " — the review page will open with this voice already confirmed",
+      () => sendConfirm(p.name, false), "ok");
+  const unconfirmBtn = () => btn("↺ Unconfirm", "Take back the ✓ — " + p.name + " goes back to a name for you to check after the call",
+      () => sendConfirm(p.name, true));
   if(p.kind === "speaker"){
-    if(p.guess) btn("✓ It's " + p.guess, "The closest voiceprint — yes, that's them",
+    if(p.guess) btn("It's " + p.guess, "The closest voiceprint — yes, that's them",
         () => sendName({kind:"voice", from:p.name, to:p.guess}));
     btn("✎ Name", "Who is " + p.name + "? Names everything this voice has said and learns it",
         () => openPicker(k, "voice", p.name));
   } else if(p.kind === "near miss"){
-    btn("✓ It's " + p.guess, "Yes, that's them — learn this voice for the rest of the call",
+    btn("It's " + p.guess, "Yes, that's them — learn this voice for the rest of the call",
         () => sendName({kind:"maybe", from:p.guess, to:p.guess}));
     btn("✎ Someone else", "Pick who it really is",
         () => openPicker(k, "maybe", p.guess));
   } else if(p.kind === "voice match"){
-    btn("✎ Not them", "The voiceprint guessed wrong — pick who it really is",
-        () => openPicker(k, "match", p.name));
+    if(p.confirmed) unconfirmBtn();
+    else{
+      confirmBtn();
+      btn("✎ Not them", "The voiceprint guessed wrong — pick who it really is",
+          () => openPicker(k, "match", p.name));
+    }
   } else if(p.kind === "blended"){
     btn("✎ Name this voice", "Names the far end's last minute of speech and learns that voice",
         () => openPicker(k, "them", null));
   } else if(p.kind === "named by you"){
-    // A live name is never a done deal: change it here, and the review page asks again.
-    btn("✎ Rename", "Wrong person? Everything named " + p.name + " this call moves to the new name",
+    p.confirmed ? unconfirmBtn() : confirmBtn();
+    btn("✎ Rename", "Wrong person? Everything named " + p.name + " this call moves to the new name"
+        + (p.confirmed ? " (and the ✓ comes off)" : ""),
         () => openPicker(k, "rename", p.name));
     btn("✕ Unname", "Take the name off — the voice goes back to its Speaker number",
         () => { if(confirm("Take the name " + p.name + " off this voice?")) sendName({kind:"rename", from:p.name, to:null}); });
   } else return null;
   return a;
+}
+
+async function sendConfirm(name, undo){
+  let r;
+  try{
+    r = await fetch("/api/cues/live/confirm", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({session: (lastR && lastR.session) || sid, name, undo})}).then(x=>x.json());
+  }catch(e){ r = {ok:false, why:"mt web is not answering"}; }
+  if(!r.ok) alert(r.why || "that did not work");
+  tick();
 }
 
 function openPicker(key, kind, from){ picking = {key, kind, from, text:""}; draw(lastR); }
@@ -391,8 +436,9 @@ async function undoName(){
 function namedBox(R){
   if(!R.named || !R.named.length) return null;
   const w = el("div","named");
-  w.appendChild(el("div","ah","Named this call — the review page opens with these filled in"));
-  R.named.forEach(n => w.appendChild(el("div","nm", n.what + " → " + n.to
+  w.appendChild(el("div","ah","Named this call — the review page opens with these filled in (✓ ones already confirmed)"));
+  R.named.forEach(n => w.appendChild(el("div","nm", n.confirm ? "✓ confirmed " + n.to
+    : n.what + " → " + n.to
     + (n.learned ? "  · voice learned (" + n.secs + " s)" : "  · too little audio to learn the voice yet"))));
   if(R.recording){ const u = el("button",null,"Undo last"); u.onclick = undoName; w.appendChild(u); }
   return w;

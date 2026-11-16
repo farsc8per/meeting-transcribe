@@ -518,7 +518,7 @@ in the pages.
 | Where | What |
 |---|---|
 | Record-now card | **Vocal cues** checkbox → `mt live --cues`; **Open Room ↗** on the recording card |
-| `/room` | Live per-speaker Energy/Friction + "Awards so far" (`/api/cues/live`) |
+| `/room` | Every recording: live naming cards (`/api/cues/live`); with vocal cues also per-speaker Energy/Friction + "Awards so far" |
 | Review → **Conversation** | Dynamics + awards for every meeting (`/api/awards`); 👑 crown (`POST /api/awards/crown`) |
 | Review → **Vocal cues** | Energy/Friction strips (`/api/cues`); Analyze (`POST /api/cues/analyze`, runs `mt cues` niced) / Clear (`POST /api/cues/clear`) |
 
@@ -543,7 +543,17 @@ a live click shouldn't be final). The source reads "named live by you — **stro
 at ≥ `POST_STRONG` 0.85, or ≥ `POST_CONFIRM` 0.75 and ≥ `POST_MARGIN` 0.20 ahead of every
 other cluster, for a verified contact; otherwise "possible". A cluster you already
 confirmed is never touched. Mid-call, `POST /api/cues/live/rename` (`from`, `to`; no `to`
-= unname) moves every decision that named one person to another. Each thing you name
+= unname) moves every decision that named one person to another (a ✓ on the old name is
+dropped, not moved).
+
+**✓ Confirm (Nov 9)** — `POST /api/cues/live/confirm` (`name`; `undo: true` takes it back)
+records a `confirm` rule whose audio (that card's far-end rows) is one more in-call sample;
+`resolve()` ignores it, so it never renames anything, and "Undo last" can undo it. After
+the pass, a cluster named for a confirmed name is written `verified` with
+`confirmed_by: "live"` — only when the name is a verified contact, the cluster scores
+≥ `POST_CONFIRM` 0.75 against the samples, and it is either ≥ `POST_STRONG` 0.85 or the
+closest cluster to that name. Otherwise it is pre-filled like any live name, its source
+saying why it still waits. Each thing you name
 keeps its own sample and a voice is scored against the closest of a person's samples
 (someone who changes phones mid-call sounds like two voices). Naming "Them" covers its last
 `THEM_WINDOW` 60 s.
@@ -555,8 +565,13 @@ needs `VOICE_MIN_SEGS` 2 to get a number (2 since Oct 8, so someone who speaks t
 gets a card). Numbering runs on what the loop saw, before your
 names, so it never shifts (measured Oct 6: 4 groups covered 91% of the unmatched speech
 an hour in; 11 by the end of the hour-long training). A name given to Speaker N follows
-that group; quiet cards (> 5 min) fold under "Earlier voices". Older recordings with no
-fingerprints keep per-guess "maybe X" cards.
+that group. Cards never fold or re-sort: each sits by when it appeared (`order` — a
+Speaker N appears with its 2nd line, and keeps that spot once named). Older recordings with
+no fingerprints keep per-guess "maybe X" cards.
+
+**Without vocal cues (Nov 9)** the loop still writes `cues_live.jsonl` on every live
+recording — timing, text, `who`/`hint`/`match` and the voice fingerprint — but no delivery
+features, no laughter scan and no `cues_requested.json`. The Room then shows names only.
 
 **Names firm up as a voice talks (Oct 8).** Each far-end line is first named from its OWN
 fingerprint (≥ `auto_assign_score` 0.62; ≥ `suggest_score` 0.42 is a hint), not the

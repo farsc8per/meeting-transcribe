@@ -1819,6 +1819,22 @@ def cues_live_rename(p: dict) -> dict:
     return livenames.rename(d, p.get("from") or "", p.get("to"))
 
 
+def cues_live_confirm(p: dict) -> dict:
+    """✓ Confirm (or, with `undo`, take back) a name on a Room card. The card's far-end
+    audio becomes one more in-call sample for the name, and after the pass the matching
+    voice is handed down confirmed (livenames.apply_after_pass)."""
+    import cues, livenames
+    d, _, _ = _live_dir(p.get("session") or "")
+    if d is None:
+        return {"ok": False, "why": "That recording has ended or does not exist."}
+    name = (p.get("name") or "").strip()
+    if p.get("undo"):
+        return livenames.unconfirm(d, name)
+    rows = cues._live_rows(d, cues.cfg())
+    segs = [(r["s"], r["e"]) for r in rows if r.get("track") == "system" and r.get("name") == name]
+    return livenames.confirm(d, name, segs)
+
+
 def cues_live_undo(p: dict) -> dict:
     import livenames
     d, _, _ = _live_dir(p.get("session") or "")
@@ -1841,11 +1857,13 @@ def cues_live(sid: str) -> dict:
     out.update({"ok": True, "recording": live, "session": d.name,
                 "elapsedText": st.get("elapsedText") if live else None,
                 "analyzed": (d / cues.FILE).exists()})
-    try:
-        import awards
-        out["awards"] = awards.live_view(d, MT.config().get("owner"))
-    except Exception:
-        out["awards"] = {"awards": []}
+    out["awards"] = {"awards": []}
+    if out.get("requested"):         # vocal cues off: the Room is names only
+        try:
+            import awards
+            out["awards"] = awards.live_view(d, MT.config().get("owner"))
+        except Exception:
+            pass
     try:
         import livenames
         out["named"] = livenames.summary(d)
@@ -1853,9 +1871,12 @@ def cues_live(sid: str) -> dict:
     except Exception:
         out["named"], out["candidates"] = [], []
     # Room's field guide: the card labels first, then the gauges they share with review.
-    out["guide"] = cues.ROOM_GUIDE + [g for g in cues.GUIDE
-                                      if g[0] in ("Energy", "Friction", "Colours",
-                                                  "Baseline dots")]
+    on = out.get("requested")
+    out["guide"] = [g for g in cues.ROOM_GUIDE
+                    if on or g[0] not in ("Lag", "Awards so far")] + ([g for g in cues.GUIDE
+                                       if g[0] in ("Energy", "Friction", "Colours",
+                                                   "Baseline dots")]
+                                      if out.get("requested") else [])
     return out
 
 
@@ -3308,7 +3329,7 @@ def _track_limit(v) -> int:
 def tracking_items(q: str = "", customer: str = "", status: str = "",
                    priority: str = "", scope: str = "", owner: str = "",
                    limit="", hide_done="", offset="", ids="", project="", mine="",
-                   due="", sort="", direction="", dep="") -> dict:
+                   due="", sort="", direction="", dep="", link="") -> dict:
     """GET /api/tracking/items — one page of the filtered list, the total it came from,
     and the header counts. Paged here rather than in the browser because a row is ~2 KB:
     all 753 is 1.5 MB, re-sent on every filter change. `ids=1` adds every matching id,
@@ -3333,7 +3354,8 @@ def tracking_items(q: str = "", customer: str = "", status: str = "",
             due=(due or "").strip() or None,
             sort=(sort or "").strip() or TR.SORT_DEFAULT,
             direction=(direction or "").strip() or None,
-            dep=(dep or "").strip() or None)
+            dep=(dep or "").strip() or None,
+            link=(link or "").strip() or None)
         rows = _safe(list(r.get("items") or []))
         counts = _safe(dict(TR.stats() or {}))
     except Exception as e:
@@ -3788,13 +3810,18 @@ def tracking_links(table: str = "action_items", id_raw="") -> dict:
         TR = _tracking()
         return {"links": _safe(TR.links_for(table, n)),
                 "suggest": _safe(TR.suggest_links(table, n)),
-                "roles": list(TR.FILE_ROLES), "error": None}
+                "roles": list(TR.LINK_ROLES), "role_help": dict(TR.LINK_ROLE_HELP),
+                "ready": _safe(TR._has_links()), "error": None}
     except Exception as e:
         return {"links": [], "suggest": [], "roles": [], "error": _cwhy(e)}
 
 
 def tracking_link(body: dict) -> dict:
-    """POST /api/tracking/link — add one, or remove one with {"remove": <link id>}."""
+    """POST /api/tracking/link (R4.9):
+        {"table", "id", "text", "role", "primary"}   add what was pasted (URL, key, path)
+        {"table", "id", "path", "role"}               add a local file (the original form)
+        {"primary": <link id>}                         make that link the row's primary
+        {"remove": <link id>}                          unlink"""
     b = body if isinstance(body, dict) else {}
     try:
         TR = _tracking()
@@ -3806,15 +3833,55 @@ def tracking_link(body: dict) -> dict:
                 return {"ok": False, "why": "no such link"}
             TR.remove_link(n)
             return {"ok": True, "why": None}
+        pid = b.get("primary")
+        if pid not in (None, "", True, False):
+            n = _cid(pid)
+            if n is None:
+                return {"ok": False, "why": "no such link"}
+            TR.set_primary_link(n)
+            return {"ok": True, "why": None}
         lid = _cid(b.get("id"))
         if lid is None:
             return {"ok": False, "why": "no such row"}
-        TR.add_link(b.get("table") or "action_items", lid,
-                    b.get("path") or "", b.get("role") or "reference",
-                    b.get("root") or "workspace", b.get("notes") or "")
+        r = TR.add_link(b.get("table") or "action_items", lid,
+                        b.get("path") or "", b.get("role") or "reference",
+                        b.get("root") or "workspace", b.get("notes") or "",
+                        text=b.get("text") or "", primary=b.get("make_primary") is True)
     except Exception as e:
         return {"ok": False, "why": _cwhy(e)}
-    return {"ok": True, "why": None}
+    return {"ok": True, "why": None, "link": _safe(r)}
+
+
+def tracking_stale(days="") -> dict:
+    """GET /api/tracking/stale — open items whose Jira tickets went quiet (R4.9)."""
+    try:
+        TR = _tracking()
+        d = int(str(days).strip()) if str(days).strip().isdigit() else TR.STALE_DAYS
+        return _safe(TR.stale_links(max(1, min(d, 3650))))
+    except Exception as e:
+        return {"idle": [], "done": [], "unchecked": [], "ready": False, "error": _cwhy(e)}
+
+
+def tracking_stale_refresh(body: dict) -> dict:
+    """POST /api/tracking/stale/refresh — read status + last-updated for every Jira key
+    linked from a live item, and cache it on the links. Read-only on Jira's side."""
+    try:
+        TR = _tracking()
+        conn = TR._connect()
+        try:
+            keys = TR.jira_keys(conn) if conn is not None else []
+        finally:
+            if conn is not None:
+                conn.close()
+        if not keys:
+            return {"ok": True, "why": None, "keys": 0, "found": 0}
+        acts = _poster().jira_activity(keys)
+        missing = {k: {} for k in keys if k not in acts}
+        r = TR.record_link_activity({**acts, **missing})
+        return {"ok": True, "why": None, "keys": len(keys), "found": len(acts),
+                "missing": sorted(missing)[:50], "at": r.get("at")}
+    except Exception as e:
+        return {"ok": False, "why": _cwhy(e)}
 
 
 # ---------------------------------------------------------------- weekly updates
@@ -4270,7 +4337,10 @@ class App(BaseHTTPRequestHandler):
                                              (q.get("due") or [""])[0],
                                              (q.get("sort") or [""])[0],
                                              (q.get("dir") or [""])[0],
-                                             (q.get("dep") or [""])[0]))
+                                             (q.get("dep") or [""])[0],
+                                             (q.get("link") or [""])[0]))
+        if path == "/api/tracking/stale":
+            return self._json(tracking_stale((q.get("days") or [""])[0]))
         if path == "/api/tracking/item":
             return self._json(tracking_item((q.get("id") or [""])[0]))
         if path == "/api/tracking/promote/preview":
@@ -4429,6 +4499,8 @@ class App(BaseHTTPRequestHandler):
             return self._json(cues_live_undo(body))
         if u.path == "/api/cues/live/rename":
             return self._json(cues_live_rename(body))
+        if u.path == "/api/cues/live/confirm":
+            return self._json(cues_live_confirm(body))
         if u.path == "/api/contacts/save":
             return self._json(contacts_save(body))
         if u.path == "/api/contacts/archive":
@@ -4452,6 +4524,8 @@ class App(BaseHTTPRequestHandler):
             return self._json(hygiene_post(u.path.rsplit("/", 1)[1], body))
         if u.path == "/api/tracking/link":
             return self._json(tracking_link(body))
+        if u.path == "/api/tracking/stale/refresh":
+            return self._json(tracking_stale_refresh(body))
         if u.path == "/api/tracking/dep":
             return self._json(tracking_dep(body))
         if u.path == "/api/tracking/title/decide":
@@ -4629,6 +4703,24 @@ def serve(port: int = 8765, open_browser: bool = True):
     else:
         MT.warn("calendar unavailable — Today will be empty")
         MT.say(f"{MT.DIM}{r.get('why','')}{MT.RST}")
+
+    # New tracking features (R4.9 …) may need columns the database lacks. mt's OWN database
+    # (made by `mt init`) is upgraded here, after a backup — this is what reaches an install
+    # whose previous version's updater did not know about `mt migrate` yet. A database the
+    # user brought is never changed here; `mt doctor` tells them what to run.
+    try:
+        import dbschema
+        p = dbschema.pending(P.DB)
+        if p["pending"] and p["mine"]:
+            MT.step("upgrading the database for new features (backs up first)")
+            u = dbschema.upgrade(P.DB)
+            MT.say(f"{MT.DIM}   {', '.join(k for k, _ in u['applied'])} · backup "
+                   f"{u['backup']}{MT.RST}")
+        elif p["pending"]:
+            MT.say(f"{MT.DIM}   your database is missing {len(p['pending'])} tracking "
+                   f"upgrade(s) — `mt doctor` says how{MT.RST}")
+    except Exception as e:                    # never stop mt web from starting
+        MT.warn(f"database upgrade skipped: {e}")
 
     srv = ThreadingHTTPServer(("127.0.0.1", port), App)
     threading.Thread(target=_update_loop, daemon=True).start()

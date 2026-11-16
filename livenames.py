@@ -284,20 +284,61 @@ def add_rule(d: Path, kind: str, frm: str | None, to: str, segments: list) -> di
 def rename(d: Path, old: str, new: str | None) -> dict:
     """Change your mind about a name, mid-call: every decision that named `old` now names
     `new` — or, with no new name, is dropped (the voice goes back to its Speaker number).
-    A live name is never final; the review page asks again after the pass."""
+    A ✓ Confirm on `old` never moves to the new name: you confirmed a different person."""
     doc = load(d)
     hit = [r for r in doc["rules"] if r["to"] == old]
     if not hit:
         return {"ok": False, "why": f"nothing was named {old} this call"}
     new = (new or "").strip()
+    doc["rules"] = [r for r in doc["rules"] if not (r["to"] == old and r["kind"] == CONFIRM)]
     if new:
-        for r in hit:
-            r["to"] = new
+        for r in doc["rules"]:
+            if r["to"] == old:
+                r["to"] = new
     else:
         doc["rules"] = [r for r in doc["rules"] if r["to"] != old]
     _rebuild_prints(d, doc)
     save(d, doc)
     return {"ok": True, "renamed": len(hit), "to": new or None}
+
+
+# ✓ Confirm (Nov 9, the owner: "If I confirm it during the meeting, can that be handed down
+# to subsequent process"). Naming and confirming stay two acts — a name you pick is still
+# a guess you can change; ✓ is you saying "that's them". A confirm is a rule like any other
+# (so "Undo last" undoes it and its audio becomes one more in-call sample for the name),
+# but resolve() ignores it: it never renames anything, it only vouches.
+CONFIRM = "confirm"
+
+
+def named_set(doc: dict) -> set:
+    """Names you GAVE this call (a confirm on a voiceprint match is not naming)."""
+    return {r["to"] for r in doc["rules"] if r["kind"] != CONFIRM}
+
+
+def confirmed_set(doc: dict) -> set:
+    return {r["to"] for r in doc["rules"] if r["kind"] == CONFIRM}
+
+
+def confirm(d: Path, name: str, segments: list) -> dict:
+    name = (name or "").strip()
+    if not name:
+        return {"ok": False, "why": "no name to confirm"}
+    if name in confirmed_set(load(d)):
+        return {"ok": True, "name": name}
+    if not segments:
+        return {"ok": False, "why": f"no speech from {name} to confirm yet"}
+    return add_rule(d, CONFIRM, name, name, segments) | {"note": None}
+
+
+def unconfirm(d: Path, name: str) -> dict:
+    doc = load(d)
+    keep = [r for r in doc["rules"] if not (r["kind"] == CONFIRM and r["to"] == name)]
+    if len(keep) == len(doc["rules"]):
+        return {"ok": False, "why": f"{name} was not confirmed this call"}
+    doc["rules"] = keep
+    _rebuild_prints(d, doc)
+    save(d, doc)
+    return {"ok": True, "name": name}
 
 
 def undo(d: Path) -> dict:
@@ -371,9 +412,10 @@ def summary(d: Path) -> list[dict]:
     out = []
     for r in doc["rules"]:
         what = {"match": f"voice match “{r['from']}”", "maybe": f"“maybe {r['from']}”",
-                "them": "the blended far end", "voice": r.get("from") or "a voice"}.get(r["kind"], r["kind"])
+                "them": "the blended far end", "voice": r.get("from") or "a voice",
+                CONFIRM: "✓ confirmed"}.get(r["kind"], r["kind"])
         out.append({"what": what, "to": r["to"], "secs": round(sum(b - a for a, b in r["segments"]), 1),
-                    "learned": r["to"] in doc["prints"]})
+                    "learned": r["to"] in doc["prints"], "confirm": r["kind"] == CONFIRM})
     return out
 
 
@@ -400,7 +442,10 @@ def verified_names() -> set:
     return out
 
 
-def apply_after_pass(d: Path) -> list[str]:
+LIVE_BY = "live"     # speakers.json `confirmed_by` for a voice you ✓ confirmed in the Room
+
+
+def apply_after_pass(d: Path, known: set | None = None) -> list[str]:
     """Pre-fill speakers.json from the in-call samples. Only far-end clusters that are not
     mixed, not already confirmed by you, and clearly closest to one sample are touched.
     Returns one line per change, for the log."""
@@ -411,7 +456,8 @@ def apply_after_pass(d: Path) -> list[str]:
     sp = json.loads(spf.read_text())
     m = sp.get("map", {})
     prints = doc["prints"]
-    known = verified_names()
+    known = verified_names() if known is None else {n.strip().lower() for n in known}
+    confirmed = {r["to"]: r.get("at") for r in doc["rules"] if r["kind"] == CONFIRM}
     # Score every far-end cluster against every sample first, so "clearly the one" can be
     # judged against the other clusters, not just against the other names.
     vecs = {}
@@ -439,16 +485,31 @@ def apply_after_pass(d: Path) -> list[str]:
         # Strong on its own (another cluster may be the same person on another phone —
         # one guest's two clusters were 0.94 and 0.78), or merely good and clearly
         # the one; and a verified contact (Person Verification Protocol).
-        strong = (sc >= POST_STRONG or (sc >= POST_CONFIRM and clear_lead)) \
-            and name.strip().lower() in known
-        # PRE-FILL, never confirm. The owner, Oct 6: a live click shouldn't be "a done deal" —
-        # the review page is the second chance. (Until then a strong match was marked
-        # verified here, so one speaker skipped review entirely.)
+        contact = name.strip().lower() in known
+        strong = (sc >= POST_STRONG or (sc >= POST_CONFIRM and clear_lead)) and contact
         v["name"] = name
-        v["source"] = (f"named live by you — {'strong' if strong else 'possible'} match "
-                       f"({sc:.2f}); confirm or change")
         v["live_named"] = round(sc, 3)
         v["live_strong"] = bool(strong)    # counts for cues/awards like a strong voiceprint
+        # A name you only PICKED live is pre-filled, never confirmed (the owner, Oct 6: a live
+        # click shouldn't be "a done deal"). One you ✓ CONFIRMED live is handed down as
+        # confirmed (Nov 9) — when this cluster is plainly the voice you confirmed (strong,
+        # or the closest cluster to that sample) and the name is a verified contact
+        # (Person Verification Protocol). Anything short of that waits for review.
+        top_for_name = sc >= max(other_clusters, default=-1.0)
+        if name in confirmed and contact and sc >= POST_CONFIRM and (sc >= POST_STRONG or top_for_name):
+            v.update(confidence="verified", confirmed_by=LIVE_BY,
+                     confirmed_at=confirmed[name],
+                     confirmed_basis=f"you confirmed {name} live in the Room; this voice "
+                                     f"matches that call's sample at {sc:.2f}",
+                     source=f"confirmed live by you ({sc:.2f})")
+            v.pop("suggestion", None)
+            changes.append(f"{key}: {old} → {name} ({sc:.2f}, confirmed live by you)")
+            continue
+        why = ("you ✓ confirmed this name live, but "
+               + ("it is not a verified contact" if not contact else "this voice is not a clear match")
+               + " — confirm or change") if name in confirmed else "confirm or change"
+        v["source"] = (f"named live by you — {'strong' if strong else 'possible'} match "
+                       f"({sc:.2f}); {why}")
         v["confidence"] = "unconfirmed"
         changes.append(f"{key}: {old} → {name} ({sc:.2f}, {'strong' if strong else 'possible'}, "
                        f"for you to confirm)")

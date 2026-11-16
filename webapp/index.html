@@ -201,9 +201,13 @@ function drawRecording(box, s){
   const meta = el("span","meta", (s.mic? s.mic+"  ·  ":"") + (s.session||""));
   top.appendChild(meta);
   top.appendChild(levelDots(s.levels));
-  if(s.params && s.params.cues){
+  // Every recording: the Room is where you name who's talking. With Vocal cues ticked
+  // the same window adds the gauges and awards.
+  {
     const room = el("button","tap","Open Room ↗");
-    room.title = "Pop-out panel: each speaker's vocal cues, live";
+    room.title = s.params && s.params.cues
+      ? "Pop-out panel: name who's talking, plus each speaker's vocal cues, live"
+      : "Pop-out panel: name who's talking, live";
     room.onclick = () => openRoom(s.session);
     top.appendChild(room);
   }

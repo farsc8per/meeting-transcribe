@@ -1326,7 +1326,7 @@ def record_posted(rel: str, jira_comment: str = "", slack_ts: str = "",
 
     notes = []
     try:
-        TR.add_link("weekly_updates", row_id, rel, role="weekly_update")
+        TR.add_link("weekly_updates", row_id, rel, role="deliverable")
     except Exception as e:
         notes.append(f"the row is saved but the file link was not ({e})")
     if has_placeholder(text):
@@ -1385,10 +1385,12 @@ def _main(args: list[str]) -> int:
             print("usage: weekly.py --migrate /path/to/copy.db", file=sys.stderr)
             return 2
         target = Path(args[1]).resolve()
-        real = TR.P.DB.resolve()
-        if target == real:
-            print(f"refusing to migrate the live DB {real} — "
-                  "back it up and migrate the copy", file=sys.stderr)
+        # tracking's check, not just paths.DB: from a worktree paths.DB is not the live
+        # DB (the Oct 12 2026 incident). It also refuses anything with the live DB's
+        # file name, so a copy must be renamed before it is migrated.
+        if TR._is_canonical(target):
+            print(f"refusing to migrate the live DB {target} — "
+                  "back it up and migrate a renamed copy", file=sys.stderr)
             return 3
         TR.DB_PATH = target
         added = ensure_schema()

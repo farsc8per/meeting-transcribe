@@ -9,9 +9,10 @@ How a group is applied, and why each step is there:
   1. The page sends back the group's `sha` — a hash of exactly the rows it showed. The
      group is recomputed now; if the hash differs, the data moved since he looked and the
      apply is refused. He approves what he saw, never something else.
-  2. A gzip'd sqlite `.backup` of the whole DB, named `<db name>.bak-<stamp>-hygiene-…`.
-     db-snapshot.sh prunes only its own dated `snapshots/` pattern, so these
-     are never pruned from under an undo.
+  2. A gzip'd sqlite `.backup` of the whole DB, in `backups/` beside it, named
+     `<db name>.bak-<stamp>-hygiene-…gz`. The newest `hygiene_backups_keep` (config.json,
+     default 10) are kept; older ones with exactly that name pattern are pruned, and
+     nothing else in `backups/` is touched. Undo works from `hygiene_log`, not the file.
   3. One transaction. Every UPDATE is guarded on the value it expects (`WHERE col IS ?`);
      if any row moved, the whole group rolls back. `updated_by='hygiene-YYYYMMDD'`;
      `updated_at` is left alone — this fixes the spelling of a value, not the substance of
@@ -321,7 +322,7 @@ def _link_groups(conn) -> list[dict]:
         for m in TR._PATH_RE.finditer(blob):
             found.append((m.group(1), TR._role_for(m.group(1))))
         for m in TR._DIR_RE.finditer(blob):
-            found.append((m.group(1) + "/summary.md", "source_meeting"))
+            found.append((m.group(1) + "/summary.md", "source"))
         seen = set()
         for path, role in found:
             if path in seen or path in have.get(r["id"], ()):
@@ -680,12 +681,50 @@ def counts() -> dict:
 
 # ------------------------------------------------------------------ backup
 
-def backup(label: str) -> str:
-    """A verified, gzip'd point-in-time copy of the whole DB, next to it."""
+def _backup_re(db_name: str) -> re.Pattern:
+    """Exactly the names backup() writes for this DB — the only files prune may remove."""
+    return re.compile(rf"^{re.escape(db_name)}\.bak-(\d{{8}}-\d{{6}})-hygiene-[a-z0-9-]+\.gz$")
+
+
+def _prune_backups(folder: Path, db_name: str, keep: int) -> list[str]:
+    """Remove all but the newest `keep` hygiene backups of `db_name` in `folder`.
+    Newest = the stamp in the name, then mtime. Never raises: a file that can't be
+    removed is left for next time."""
+    pat = _backup_re(db_name)
+    found = []
+    for f in folder.iterdir():
+        m = pat.match(f.name)
+        if m and f.is_file():
+            try:
+                found.append((m.group(1), f.stat().st_mtime_ns, f))
+            except OSError:
+                continue
+    found.sort(reverse=True)
+    removed = []
+    for _, _, f in found[max(1, keep):]:
+        try:
+            f.unlink()
+            removed.append(f.name)
+        except OSError:
+            pass
+    return removed
+
+
+def backup(label: str, keep: int | None = None) -> str:
+    """A verified, gzip'd point-in-time copy of the whole DB, in backups/ beside it.
+    Then prunes this module's older backups down to `keep` (config hygiene_backups_keep)."""
+    import paths as P
     src = _db()
+    folder = src.parent / "backups"
+    folder.mkdir(exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     safe = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:40] or "group"
-    dest = src.parent / f"{src.name}.bak-{stamp}-hygiene-{safe}.gz"
+    dest = folder / f"{src.name}.bak-{stamp}-hygiene-{safe}.gz"
+    n = 2
+    while dest.exists():                      # two backups in the same second, same label
+        dest = folder / f"{src.name}.bak-{stamp}-hygiene-{safe}-{n}.gz"
+        n += 1
+    part = dest.with_name(dest.name + ".part")   # a half-written file never matches the pattern
     fd, tmp = tempfile.mkstemp(suffix=".db", prefix="hygiene-")
     os.close(fd)
     try:
@@ -699,13 +738,16 @@ def backup(label: str) -> str:
             s.close()
         if ok != "ok":
             raise RuntimeError(f"backup failed its integrity check: {ok}")
-        with open(tmp, "rb") as fi, gzip.open(dest, "wb", compresslevel=6) as fo:
+        with open(tmp, "rb") as fi, gzip.open(part, "wb", compresslevel=6) as fo:
             shutil.copyfileobj(fi, fo)
+        os.replace(part, dest)
     finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+        for f in (tmp, part):
+            try:
+                os.unlink(f)
+            except OSError:
+                pass
+    _prune_backups(folder, src.name, P.HYGIENE_BACKUPS_KEEP if keep is None else keep)
     return str(dest)
 
 

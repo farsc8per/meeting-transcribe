@@ -529,6 +529,46 @@ def last_comment(issue: str) -> str:
     return adf_text((f.get("fields") or {}).get(LAST_COMMENT_FIELD))
 
 
+_KEY = re.compile(r"[A-Z][A-Z0-9]{1,9}-\d+")
+
+
+def jira_activity(keys: list[str], batch: int = 50) -> dict:
+    """Status and last-updated for many tickets, read-only — what the tracker's
+    stale-ticket view caches (R4.9). {key: {"status": name, "updated": ISO-ish}}; a key
+    Jira does not return (deleted, moved, no access) is simply absent.
+
+    One JQL search per batch. JQL rejects the whole query when any key in `key in (...)`
+    does not exist, so a batch that fails falls back to one GET per key."""
+    keys = sorted({(k or "").strip().upper() for k in keys or []
+                   if _KEY.fullmatch((k or "").strip().upper())})
+    out: dict[str, dict] = {}
+
+    def keep(issue: dict):
+        f = issue.get("fields") or {}
+        out[issue.get("key")] = {"status": (f.get("status") or {}).get("name") or "",
+                                 "updated": (f.get("updated") or "")[:19]}
+
+    for i in range(0, len(keys), batch):
+        chunk = keys[i:i + batch]
+        try:
+            doc = _jira("POST", "/rest/api/3/search/jql",
+                        {"jql": f"key in ({', '.join(chunk)})",
+                         "fields": ["status", "updated"], "maxResults": len(chunk)})
+            for issue in doc.get("issues") or []:
+                keep(issue)
+            continue
+        except ApiError as e:
+            if "401" in str(e) or "no Jira site" in str(e):
+                raise
+        for k in chunk:                      # the slow path: one at a time
+            try:
+                keep(_jira("GET", f"/rest/api/3/issue/{k}?fields=status,updated"))
+            except ApiError as e:
+                if "401" in str(e):
+                    raise
+    return out
+
+
 # ------------------------------------------------------------------ plan (the confirm)
 
 def _load(rel: str) -> tuple[dict | None, str | None]:

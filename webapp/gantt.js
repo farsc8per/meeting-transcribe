@@ -494,6 +494,7 @@ function renderLabels() {
       row.appendChild(sw);
       row.appendChild(el("span", "gid", (r.depth ? "↳ " : "") + "#" + r.id));
       row.appendChild(el("span", "gt", r.t));
+      if (r.plink) row.appendChild(glink(r.plink));
       // Status in words on every row: colour never carries it alone (and light-mode
       // yellow is under 3:1 on white).
       // Waiting on a predecessor is not flagged here — the arrow already says it, and a
@@ -1554,6 +1555,26 @@ window.addEventListener("pagehide", function () {
   navigator.sendBeacon("/api/tracking/lease", JSON.stringify({ holder: HOLDER, ids: [] }));
 });
 
+// R4.9 — an item's primary link, one click: a URL in a new tab; a local file in mt's
+// Files editor (its own tab, via /files?open=). Never starts a drag or opens the item.
+function glink(pl) {
+  var a = el("a", "glink", pl.file ? "📄" : "↗");
+  a.href = pl.file ? "/files?root=" + encodeURIComponent(pl.root || "workspace")
+                     + "&open=" + encodeURIComponent(pl.path || "")
+                   : (pl.href || "#");
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.title = (pl.label || "link") + (pl.n > 1 ? "  (+" + (pl.n - 1) + " more on the item)" : "")
+    + (pl.href || pl.file ? "" : " — no URL for this one yet");
+  ["mousedown", "click", "dblclick"].forEach(function (t) {
+    a.addEventListener(t, function (e) {
+      e.stopPropagation();
+      if (t === "click" && !pl.href && !pl.file) e.preventDefault();
+    });
+  });
+  return a;
+}
+
 // ---- the tray
 
 function renderTray() {
@@ -1580,6 +1601,7 @@ function renderTray() {
     var top = el("div", "gtit");
     top.appendChild(el("span", "gid", "#" + k));
     top.appendChild(el("span", "gtt", r ? r.t : (p.t || "")));
+    if (r && r.plink) top.appendChild(glink(r.plink));
     var u = el("button", "tap", "↶");
     u.title = "Undo this item's changes";
     u.addEventListener("click", function () { undoItem(k); });

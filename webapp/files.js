@@ -527,5 +527,17 @@ function showHistory(f, ta, apply) {
 window.mtOpenFile = openFile;
 // tracking.js loads this file only to borrow the editor. There is no #list there, so the
 // browse page is only booted where it exists.
-if (document.getElementById("list") && document.getElementById("fq")) boot();
+if (document.getElementById("list") && document.getElementById("fq")) {
+  boot();
+  // R4.9: /files?open=<path>&root=<root> opens that file straight away — what a tracker
+  // link to a local file lands on from outside mt (the Gantt, the published tracker).
+  var dl = new URLSearchParams(location.search), want = dl.get("open");
+  if (want) {
+    api("/api/file?root=" + encodeURIComponent(dl.get("root") || "workspace")
+        + "&path=" + encodeURIComponent(want)).then(function (r) {
+      if (r.ok) openFile({ root: r.root, path: r.path, name: r.path.split("/").pop(),
+                           bytes: r.bytes });
+    });
+  }
+}
 })();

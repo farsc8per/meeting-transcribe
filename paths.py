@@ -68,6 +68,18 @@ else:
     TRASH, TRASH_FROM = Path.home() / "mt-data" / "trash", "default"
 
 
+def _int_setting(key: str, default: int, low: int = 1) -> int:
+    try:
+        return max(low, int(_CFG.get(key, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+# How many of the Hygiene page's own whole-DB backups to keep, in <db folder>/backups/.
+# Older ones are pruned after each new one; nothing else in that folder is touched.
+HYGIENE_BACKUPS_KEEP = _int_setting("hygiene_backups_keep", 10)
+
+
 def _claude_memory_dir(ws: Path) -> Path:
     """Claude Code's auto-memory folder for a project rooted at `ws`.
 
@@ -150,6 +162,13 @@ RELEASE_URL = str(_CFG.get("release_url")
 JIRA_SITE = (os.environ.get("MT_JIRA_SITE_URL") or _CFG.get("jira_site") or "").rstrip("/")
 # macOS keychain service holding the Jira API token, when not in the credentials file.
 JIRA_KEYCHAIN = _CFG.get("jira_keychain") or "mt-jira-api"
+# Where tracker links open (R4.9). All optional: a blank one means "no URL" for that
+# system's id-only links, never an error. A pasted URL always works without them.
+#   monday_site     https://yourco.monday.com      (board/pulse links)
+#   slack_site      https://yourco.slack.com       (channel/thread links)
+# Gmail and Calendar links open as GOOGLE_ACCOUNT (above), when it is set.
+MONDAY_SITE = str(_CFG.get("monday_site") or "").strip().rstrip("/")
+SLACK_SITE = str(_CFG.get("slack_site") or "").strip().rstrip("/")
 # Company names that sit in a contact's "company" field rather than naming a person, on
 # top of every account's slug, name, code and label (e.g. partners, your own company).
 AFFILIATIONS = [str(x).lower() for x in _CFG.get("affiliations") or []]

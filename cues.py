@@ -124,8 +124,9 @@ GUIDE = [
 ROOM_GUIDE = [
     ("you · mic", "Your microphone track — always you."),
     ("voice match 0.xx",
-     "A far-end chunk whose voiceprint matched at or above the auto-assign score (0.62). "
-     "A live guess, not a confirmation; the review page only names confirmed speakers."),
+     "A far-end voice that matched a saved voiceprint at or above the auto-assign score "
+     "(0.62) — a Speaker N card takes the name by itself once that voice has said about "
+     "8 s. A live guess until you ✓ Confirm it."),
     ("Them · far end, blended",
      "Far-end speech that matched nobody, possibly several people mixed together, scored "
      "only against this call. Never wins an award. ✎ Name this voice names its last "
@@ -133,24 +134,28 @@ ROOM_GUIDE = [
     ("Speaker N · unnamed voice",
      "Far-end speech no voiceprint claimed, split live by voice (a group needs 2+ "
      "lines). The number never changes during the call. 'maybe X?' is the closest "
-     "voiceprint — ✓ It's X, or ✎ Name to pick anyone. One name covers everything that "
+     "voiceprint — It's X, or ✎ Name to pick anyone. One name covers everything that "
      "voice says from then on."),
-    ("Earlier voices",
-     "Cards for anyone not heard in the last 5 minutes fold away here; you and anyone you "
-     "named always stay up."),
+    ("Card order",
+     "Cards stay where they first appeared for the whole call — nobody jumps to the top "
+     "when they talk; the highlighted card is whoever is speaking."),
     ("maybe X · near miss",
      "Recordings from before voice separation only: a voice that came close to X's "
-     "voiceprint at least 3 times. ✓ It's X or ✎ Someone else."),
+     "voiceprint at least 3 times. It's X or ✎ Someone else."),
     ("What they said",
-     "Each card shows the last lines that voice said, so you can name someone from what "
-     "they're talking about. The picker repeats them while you choose."),
+     "Each card shows the latest line that voice said, so you can name someone from what "
+     "they're talking about. The picker shows the last few while you choose."),
     ("Naming live",
      "Your pick relabels that card's chunks and learns the voice for the rest of THIS "
      "call: later chunks that sound like it (0.62+) get the name, in the Room and the "
-     "live transcript. It's never a done deal: after the full pass the review page opens "
-     "with those voices filled in as 'named live by you — strong/possible match', and "
-     "you confirm or change each one. Nothing is enrolled, and the people map is never "
-     "touched."),
+     "live transcript. A pick alone is never a done deal: after the full pass the review "
+     "page opens with those voices filled in as 'named live by you', for you to confirm. "
+     "Nothing is enrolled, and the people map is never touched."),
+    ("✓ Confirm",
+     "You're sure: that's them. After the pass the matching voice arrives on the review "
+     "page already confirmed ('confirmed live by you') — when it is a verified contact "
+     "and the voice clearly matches what you confirmed; otherwise it is pre-filled for you "
+     "to check. ↺ Unconfirm takes it back; Undo last does too if it was your latest."),
     ("named by you",
      "A voice you named during this call. ✎ Rename moves everything you gave that name to "
      "another; ✕ Unname takes it off and the voice goes back to its Speaker number. Undo "
@@ -712,13 +717,17 @@ def requested(d: Path) -> bool:
 
 def append_live(d: Path, kind: str, at: float, segs: list[dict], wav: Path,
                 who: str | None, hint: str | None = None, match: float | None = None,
-                people: list | None = None) -> int:
+                people: list | None = None, features: bool = True) -> int:
     """Measure the chunk just transcribed. `who` is a name only for the owner's mic or a
     voiceprint match at the auto-assign score; anything weaker stays the blended "Them"
     with the near-miss kept as a hint. With `people` (the stored voiceprints), a far-end
     line long enough to fingerprint is named from its own voice instead. Returns rows
-    written."""
-    x = decode(wav)                  # same high-pass + mains notches as the post pass
+    written.
+
+    `features=False` is every recording WITHOUT vocal cues: the Room still needs who said
+    what, when, and each far-end line's voice fingerprint to split and name voices — but
+    no delivery is measured (no pitch, energy or pace), so nothing here goes past naming."""
+    x = decode(wav) if features else None   # same high-pass + mains notches as the post pass
     raw = None
     if kind == "system":
         # One voice fingerprint per far-end segment, from the raw audio like every
@@ -739,7 +748,8 @@ def append_live(d: Path, kind: str, at: float, segs: list[dict], wav: Path,
                    "who": who, "hint": hint,
                    "match": None if match is None else round(float(match), 3),
                    "text": sg.get("text", "").strip()}   # for Best Saying so far
-            row.update(line_features(x, s, e, sg.get("text", "")))
+            if features:
+                row.update(line_features(x, s, e, sg.get("text", "")))
             if raw is not None and e - s >= livenames.VOICE_MIN_SEC:
                 try:
                     row["v"] = livenames.embed(raw[int(s * 16000):int(e * 16000)])
@@ -823,18 +833,32 @@ def live_score(d: Path, owner: str | None = None) -> dict:
     """What the Room panel shows: per speaker, the reading now and the trend so far."""
     c = cfg()
     rows = _live_rows(d, c)
-    base = {"requested": requested(d), "rows": len(rows), "bands": c["bands"],
+    want = requested(d)
+    base = {"requested": want, "rows": len(rows), "bands": c["bands"],
             "words": {"energy": ENERGY_WORDS, "friction": FRICTION_WORDS},
             "window_sec": c["window_sec"], "people": []}
     if not rows:
         return base
-    pool = history(d, c)
+    # Without vocal cues the rows carry no delivery measurements: the Room is names only,
+    # so the other meetings' baselines are never read and no one is scored.
+    pool = history(d, c) if want else {}
     now = max(r["e"] for r in rows)
     try:
         import livenames
-        named_live = {r["to"] for r in livenames.cached(d)["rules"]}
+        doc = livenames.cached(d)
+        named_live = livenames.named_set(doc)
+        confirmed = livenames.confirmed_set(doc)
     except Exception:
-        named_live = set()
+        named_live, confirmed = set(), set()
+    # Where a card sits: when it first APPEARED on screen, which never changes. A Speaker N
+    # card appears with that voice's 2nd line (livenames.VOICE_MIN_SEGS), not its 1st — so
+    # sorting by first line slid a late-forming card in above ones already there — and a
+    # card keeps its Speaker N's spot when the voice gets a name, by you or a voiceprint.
+    voice_rows: dict = {}
+    for r in rows:
+        if r.get("voice"):
+            voice_rows.setdefault(r["voice"], []).append(r["s"])
+    shown_at = {v: ts[min(1, len(ts) - 1)] for v, ts in voice_rows.items()}
     groups: dict = {}
     for r in rows:
         groups.setdefault(r["name"], []).append(r)
@@ -849,7 +873,10 @@ def live_score(d: Path, owner: str | None = None) -> dict:
         them = name == "Them"
         maybe = name.startswith("maybe ")
         speaker = name.startswith("Speaker ") and name not in named_live
-        person, _ = _score_person(name, rs, pool, c, use_history=not (them or maybe or speaker))
+        if want:
+            person, _ = _score_person(name, rs, pool, c, use_history=not (them or maybe or speaker))
+        else:
+            person = {"points": [], "baseline": None, "confidence": 0}
         pts = person["points"]
         cur = next((p for p in reversed(pts) if p["E"] is not None or p["F"] is not None), None)
         track = rs[-1]["track"]
@@ -876,7 +903,14 @@ def live_score(d: Path, owner: str | None = None) -> dict:
             "match": max((r.get("match") or 0) for r in rs) or None,
             "hint": hints[-1] if hints else None,
             "speaking": rs[-1]["e"] >= now - 8, "last": rs[-1]["e"], "first": rs[0]["s"],
+            # The blended far end sits first: its rows leave it as voices form, so its own
+            # first line moves.
+            "order": -1.0 if them else min(shown_at.get(r.get("voice"), r["s"]) for r in rs),
             "lines": len(rs), "baseline": person["baseline"],
+            "secs": round(sum(r["e"] - r["s"] for r in rs), 1),
+            # You ticked ✓ Confirm on this name during the call: the pass marks the
+            # matching voice confirmed (livenames.apply_after_pass).
+            "confirmed": name in confirmed,
             "confidence": person["confidence"],
             "now": None if not cur else {k: cur[k] for k in ("E", "eb", "F", "fb", "s", "e")
                                           if k in cur},
@@ -887,6 +921,6 @@ def live_score(d: Path, owner: str | None = None) -> dict:
             # they're talking about instead of waiting for a name to come up.
             "recent": [{"t": r["s"], "text": r.get("text", "")} for r in rs[-3:] if r.get("text")],
         })
-    people.sort(key=lambda p: (p["kind"] == "you", p["first"]))
+    people.sort(key=lambda p: (p["kind"] == "you", p["order"]))
     base.update({"now": now, "people": people})
     return base

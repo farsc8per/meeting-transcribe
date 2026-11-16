@@ -247,6 +247,17 @@ def run(busy: str | None = None, force: bool = False, say=print) -> dict:
             return undo(f"the rebuild failed (see {LOG_FILE})")
     else:
         r.step("no rebuild needed")
+    # New tracking features may add columns/tables. mt's own database is upgraded here
+    # (after a backup); a database the user brought is only reported on (dbschema.upgrade).
+    # Every step is additive, so going back to the previous version still runs on it.
+    r.step("upgrading the database for new features (backs up first)")
+    try:
+        rc = _logged([sys.executable, str(HERE / "mt.py"), "migrate", "--auto"], timeout=600)
+    except subprocess.TimeoutExpired:
+        rc = -1
+    if rc != 0:
+        return undo(f"the database upgrade failed (see {LOG_FILE}); its backup is in "
+                    "backups/ beside the database")
     r.step("checking the install (mt doctor)")
     try:
         rc = _logged([sys.executable, str(HERE / "mt.py"), "doctor"], timeout=300)

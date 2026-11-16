@@ -230,6 +230,11 @@ function fillFilters() {
     });
   });
   $("#tdep").hidden = !META.vocab.r42;
+  // R4.9: the stale-ticket view is a filter like any other, so Clear filters and the
+  // quick views treat it the same way.
+  $("#tlink").hidden = !META.vocab.links_ready;
+  $("#tlink").title = "Stale Jira tickets: a linked ticket quiet "
+    + (META.vocab.stale_days || 60) + "+ days, or done in Jira while the item is open";
 
   refill($("#tdue"), function (sel) {
     (META.vocab.due_filters || []).forEach(function (d) {
@@ -326,10 +331,15 @@ var QUICK = [
   { key: "waiting", label: "Waiting on others", set: { status: "waiting" },
     title: "status = waiting: you need someone else to come back to you" },
   { key: "ready", label: "Ready to start", set: { dep: "ready" },
-    title: "open items whose predecessors are all finished (or marked met anyway)" }
+    title: "open items whose predecessors are all finished (or marked met anyway)" },
+  { key: "fu", label: "Follow-ups due", set: { due: "followup" }, need: "follow_up",
+    title: "open items whose follow-up date is today or earlier" },
+  { key: "stale", label: "Stale tickets", set: { link: "stale" }, need: "links_ready",
+    title: "open items whose linked Jira ticket has not moved in 60+ days, or is already "
+      + "done — the old-ticket review, from the cached Jira activity (Refresh to re-read)" }
 ];
 var QFIELDS = { status: "#tstatus", priority: "#tprio", scope: "#tscope",
-                owner: "#towner", due: "#tdue", dep: "#tdep" };
+                owner: "#towner", due: "#tdue", dep: "#tdep", link: "#tlink" };
 
 function quickActive(q) {
   if ($("#tmine").checked !== !!q.set.mine) return false;
@@ -354,17 +364,61 @@ function renderQuick() {
   box.appendChild(el("span", "lbl", "Quick views"));
   QUICK.forEach(function (q) {
     if (q.set.dep && !META.vocab.r42) return;
+    if (q.need && !META.vocab[q.need]) return;
     var b = el("button", quickActive(q) ? "on" : "", q.label);
     if (q.title) b.title = q.title;
     b.addEventListener("click", function () { applyQuick(q); });
     box.appendChild(b);
   });
+  renderStaleBar(box);
   if (META.title_drafts) {
     var tl = el("a", "ttl-link", "✎ " + META.title_drafts + " title"
                 + (META.title_drafts === 1 ? "" : "s") + " to review");
     tl.href = "/tracking/titles";
     box.appendChild(tl);
   }
+}
+
+// R4.9 — while "Stale tickets" is on: when Jira was last read, and a button to read it
+// again (read-only on Jira's side; it caches status + last-updated on the links).
+function renderStaleBar(after) {
+  var bar = $("#stalebar");
+  if (!bar) {
+    bar = el("div", "stalebar");
+    bar.id = "stalebar";
+    after.parentNode.insertBefore(bar, after.nextSibling);
+  }
+  var on = $("#tlink") && $("#tlink").value === "stale";
+  bar.hidden = !on;
+  if (!on) return;
+  bar.innerHTML = "";
+  var txt = el("span", "sub", "Reading cached Jira activity…");
+  bar.appendChild(txt);
+  var btn = el("button", "tap", "Refresh from Jira");
+  btn.type = "button";
+  btn.title = "Re-read status and last-updated for every Jira ticket linked from an open item";
+  bar.appendChild(btn);
+  function show(s) {
+    if (s.error) { txt.textContent = s.error; return; }
+    txt.textContent = (s.checked_at ? "Jira last read " + s.checked_at.slice(0, 16)
+                                    : "Jira not read yet — press Refresh")
+      + "  ·  " + s.idle.length + " quiet " + s.days + "+ days  ·  " + s.done.length
+      + " done in Jira, open here" + (s.unchecked.length ? "  ·  " + s.unchecked.length
+      + " never read" : "");
+  }
+  api("/api/tracking/stale").then(show);
+  btn.addEventListener("click", function () {
+    btn.disabled = true;
+    btn.textContent = "Reading Jira…";
+    api("/api/tracking/stale/refresh", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    }).then(function (r) {
+      btn.disabled = false;
+      btn.textContent = "Refresh from Jira";
+      if (!r.ok) { txt.textContent = r.why || "Jira could not be read"; return; }
+      load("refresh");
+    });
+  });
 }
 
 // Mine and a specific owner would AND together into nothing, so Mine parks the owner
@@ -382,7 +436,7 @@ function wire() {
     t = setTimeout(load, 250);
   });
   $("#tcust").addEventListener("change", function () { fillProjectSelect(); load(); });
-  ["#tproj", "#tstatus", "#tprio", "#tscope", "#towner", "#tdue", "#tdep",
+  ["#tproj", "#tstatus", "#tprio", "#tscope", "#towner", "#tdue", "#tdep", "#tlink",
    "#thide"].forEach(function (s) {
     $(s).addEventListener("change", load);
   });
@@ -450,7 +504,7 @@ function filterParams() {
   if (q) p.set("q", q);
   [["customer", "#tcust"], ["project", "#tproj"], ["status", "#tstatus"],
    ["priority", "#tprio"], ["scope", "#tscope"], ["owner", "#towner"],
-   ["due", "#tdue"], ["dep", "#tdep"]].forEach(function (pair) {
+   ["due", "#tdue"], ["dep", "#tdep"], ["link", "#tlink"]].forEach(function (pair) {
     var n = $(pair[1]);
     if (n.value && !n.disabled) p.set(pair[0], n.value);
   });
@@ -500,7 +554,8 @@ function load(mode) {
   });
 }
 
-var FILTER_IDS = ["#tcust", "#tproj", "#tstatus", "#tprio", "#tscope", "#towner", "#tdue", "#tdep"];
+var FILTER_IDS = ["#tcust", "#tproj", "#tstatus", "#tprio", "#tscope", "#towner", "#tdue", "#tdep",
+                  "#tlink"];
 function activeFilters() {
   var n = 0;
   if ($("#tq").value.trim()) n++;
@@ -1012,9 +1067,24 @@ function rowFor(it) {
   if ((it.with || []).length) {
     bits.push("with " + it.with.map(function (p) { return p.name; }).join(", "));
   }
+  if (it.follow_up_date && it.follow_up_date !== it.due_date) {
+    bits.push("follow up " + shortDate(it.follow_up_date));
+  }
   if (it.source) bits.push(it.source.slice(0, 60));
+  if (it.plink) sub.appendChild(plinkChip(it.plink));
   sub.appendChild(document.createTextNode(bits.join("  ·  ")));
   mid.appendChild(sub);
+  if ((it.stale || []).length) {
+    var st = el("div", "stalechips");
+    it.stale.forEach(function (s) {
+      var c = linkAnchor({ label: s.text, href: s.href, system: "jira" }, "tag "
+        + (s.kind === "done" ? "ok" : "unconf"));
+      c.title = s.kind === "done" ? s.key + " is " + s.status + " in Jira, this item is still open"
+        : s.key + " has not been updated in Jira for a while (" + (s.status || "?") + ")";
+      st.appendChild(c);
+    });
+    mid.appendChild(st);
+  }
   var seq = seqChips(it);
   if (seq) mid.appendChild(seq);
   row.appendChild(mid);
@@ -2320,6 +2390,9 @@ function openSheet(it) {
   grid.appendChild(vocabField("priority", it));
   grid.appendChild(vocabField("report_scope", it));
   grid.appendChild(dateField("due_date", "Due date", it.due_date || ""));
+  if (META.vocab.follow_up) {
+    grid.appendChild(dateField("follow_up_date", "Follow-up", it.follow_up_date || ""));
+  }
   var projL = selectField("project_id", "Project", it.project_id,
     META.projects.map(function (p) { return [String(p.id), p.name]; }), "— none —");
   grid.appendChild(projL);
@@ -2929,42 +3002,68 @@ function ownerField(it) {
   return hint(l, "owner");
 }
 
-// Linked files. The DB has been pointing at local markdown for months — in prose, inside
-// `source` — so this both shows real links and offers the paths already buried in this
-// row's own text, rather than making the user retype what is already written down.
+// Links (R4.9). Everything this item points at — Jira, Monday, Slack, Gmail, Drive,
+// Confluence, local files, any URL — each clickable. ★ marks the primary: the one the list
+// opens in one click. "+ Add link" takes whatever is pasted (a URL, a ticket key, a
+// workspace path) and the server works out what it is. Paths already buried in the item's
+// own text are still offered as "Link this".
 function linkSection(it) {
-  var wrap = el("div");
-  wrap.appendChild(el("div", "sub", "Linked files"));
+  var wrap = el("div", "links");
+  var head = el("div", "sub", "Links");
+  wrap.appendChild(head);
   var box = el("div");
   wrap.appendChild(box);
+  var ready = !!META.vocab.links_ready;
+  var roles = META.vocab.link_roles || ["reference"];
+  var help = META.vocab.link_role_help || {};
+
+  function post(body, btn) {
+    if (btn) btn.disabled = true;
+    return api("/api/tracking/link", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (x) {
+      if (btn) btn.disabled = false;
+      if (!x.ok) { window.alert(x.why || "that did not save"); return x; }
+      draw();
+      return x;
+    });
+  }
 
   function draw() {
     api("/api/tracking/links?table=action_items&id=" + it.id).then(function (r) {
       box.innerHTML = "";
       if (r.error) { box.appendChild(el("div", "err", r.error)); return; }
-      var files = (r.links || []).filter(function (l) { return l.system === "file"; });
-      var other = (r.links || []).filter(function (l) { return l.system !== "file"; });
+      var links = r.links || [];
+      head.textContent = "Links" + (links.length ? " (" + links.length + ")" : "");
 
-      files.forEach(function (l) {
-        var row = el("div", "lnk");
-        row.appendChild(el("span", "tag r", l.role));
-        var a = el("a", "p", l.external_item_id);
-        a.href = "#";
-        a.addEventListener("click", function (e) {
-          e.preventDefault();
-          openLinkedFile(l.external_container_id || "workspace", l.external_item_id);
-        });
+      links.forEach(function (l) {
+        var row = el("div", "lnk" + (l.is_primary ? " primary" : ""));
+        var star = el("button", "tap star", l.is_primary ? "★" : "☆");
+        star.type = "button";
+        star.title = l.is_primary ? "Primary — the list opens this one"
+                                  : ready ? "Make this the primary link"
+                                          : "Primary links arrive with the R4.9 migration";
+        star.disabled = !!l.is_primary || !ready;
+        star.addEventListener("click", function () { post({ primary: l.id }, star); });
+        row.appendChild(star);
+        var tag = el("span", "tag r", l.role);
+        tag.title = help[l.role] || l.role;
+        row.appendChild(tag);
+        var a = linkAnchor(l, "p");
         row.appendChild(a);
+        if (l.notes) {
+          var n = el("span", "lnote", l.notes.length > 90 ? l.notes.slice(0, 90) + "…" : l.notes);
+          n.title = l.notes;
+          row.appendChild(n);
+        }
         var rm = el("button", "tap r", "Unlink");
+        rm.type = "button";
+        rm.disabled = !ready && !l.file;
+        if (rm.disabled) rm.title = "Only file links can be removed before the R4.9 migration";
         rm.addEventListener("click", function () {
-          rm.disabled = true;
-          api("/api/tracking/link", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ remove: l.id })
-          }).then(function (x) {
-            if (!x.ok) { rm.disabled = false; return; }
-            draw();
-          });
+          if (!window.confirm("Unlink " + l.label + " from #" + it.id + "?")) return;
+          post({ remove: l.id }, rm);
         });
         row.appendChild(rm);
         box.appendChild(row);
@@ -2975,35 +3074,152 @@ function linkSection(it) {
         row.appendChild(el("span", "tag r", sg.role));
         row.appendChild(el("span", "p", sg.path));
         var add = el("button", "tap r", "Link this");
+        add.type = "button";
         add.title = "found in this item's own source/description text";
         add.addEventListener("click", function () {
-          add.disabled = true;
-          api("/api/tracking/link", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ table: "action_items", id: it.id,
-                                   path: sg.path, role: sg.role })
-          }).then(function (x) {
-            if (!x.ok) { add.disabled = false; return; }
-            draw();
-          });
+          post({ table: "action_items", id: it.id, path: sg.path, role: sg.role }, add);
         });
         row.appendChild(add);
         box.appendChild(row);
       });
 
-      if (other.length) {
-        box.appendChild(el("div", "hint", other.length + " link(s) to other systems: "
-          + other.map(function (l) { return l.system + ":" + l.external_item_id; })
-                 .join(", ") + " — managed where they were created."));
+      if (!links.length && !(r.suggest || []).length) {
+        box.appendChild(el("div", "hint", "Nothing linked yet."));
       }
-      if (!files.length && !(r.suggest || []).length) {
-        box.appendChild(el("div", "hint",
-          "No files linked, and no path found in this item's text. Link one from the "
-          + "Files page, or paste a workspace path into Source and reopen."));
-      }
+      box.appendChild(addLinkRow());
     });
   }
+
+  // Same pattern as "+ Add entry": a button that opens a small inline form.
+  function addLinkRow() {
+    var row = el("div", "entryrow addlink");
+    var b = el("button", null, "+ Add link");
+    b.type = "button";
+    b.title = "Paste a URL, a ticket key (ABC-123) or a workspace path";
+    row.appendChild(b);
+    var hintTxt = el("span", "sub",
+      "Jira, Monday, Slack, Gmail, Drive, Confluence, a local path or any URL.");
+    row.appendChild(hintTxt);
+    var form = el("div", "addlinkform");
+    form.hidden = true;
+    var inp = el("input");
+    inp.type = "text";
+    inp.placeholder = "https://…  or  ABC-123  or  Customers/…/summary.md";
+    var sel = el("select");
+    roles.forEach(function (x) {
+      var o = optionFor(x, x);
+      o.title = help[x] || "";
+      sel.appendChild(o);
+    });
+    var touched = false;
+    sel.addEventListener("change", function () { touched = true; });
+    inp.addEventListener("input", function () {
+      if (!touched) sel.value = guessRole(inp.value);
+    });
+    var prim = el("label", "inl");
+    var pc = el("input");
+    pc.type = "checkbox";
+    prim.appendChild(pc);
+    prim.appendChild(document.createTextNode(" primary"));
+    prim.hidden = !ready;
+    var go = el("button", "primary", "Add");
+    go.type = "button";
+    var cancel = el("button", "tap", "Cancel");
+    cancel.type = "button";
+    var err = el("div", "err");
+    err.hidden = true;
+    [inp, sel, prim, go, cancel].forEach(function (n) { form.appendChild(n); });
+    form.appendChild(err);
+
+    function open(on) {
+      form.hidden = !on;
+      b.hidden = hintTxt.hidden = on;
+      if (on) { inp.value = ""; touched = false; err.hidden = true; inp.focus(); }
+    }
+    function submit() {
+      var v = inp.value.trim();
+      if (!v) { inp.focus(); return; }
+      go.disabled = true;
+      err.hidden = true;
+      api("/api/tracking/link", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ table: "action_items", id: it.id, text: v,
+                               role: sel.value, make_primary: pc.checked })
+      }).then(function (x) {
+        go.disabled = false;
+        if (!x.ok) { err.textContent = x.why || "that did not save"; err.hidden = false; return; }
+        draw();
+      });
+    }
+    b.addEventListener("click", function () { open(true); });
+    cancel.addEventListener("click", function () { open(false); });
+    go.addEventListener("click", submit);
+    inp.addEventListener("keydown", function (e) {
+      // Enter inside the sheet would otherwise submit the whole item form.
+      if (e.key === "Enter") { e.preventDefault(); submit(); }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); open(false); }
+    });
+    var wrapRow = el("div");
+    wrapRow.appendChild(row);
+    wrapRow.appendChild(form);
+    return wrapRow;
+  }
+
   draw();
+  return wrap;
+}
+
+// What a pasted link most likely is to this item. Only a default — the picker is right there.
+function guessRole(v) {
+  v = (v || "").trim();
+  if (/^[A-Za-z][A-Za-z0-9]{1,9}-\d+$/.test(v) || /atlassian\.net\/(browse|jira)/.test(v)
+      || /monday\.com\/boards/.test(v)) return "tracks";
+  if (/slack\.com\/archives/.test(v)) return "discussion";
+  if (/mail\.google\.com/.test(v) || /\/meetings\//.test(v)) return "source";
+  return "reference";
+}
+
+// One link as a clickable element. A URL opens in a new tab; a local file opens in mt's
+// editor; a link with no URL (an id whose site is not configured) says so instead of
+// pretending. Clicks never reach the row underneath (which would open the sheet).
+function linkAnchor(l, cls) {
+  var label = l.label || l.external_item_id || "link";
+  var a;
+  if (l.file) {
+    a = el("a", cls, label);
+    a.href = "#";
+    a.title = (l.path || l.external_item_id || "") + " — opens in the editor";
+    a.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openLinkedFile(l.root || l.external_container_id || "workspace",
+                     l.path || l.external_item_id);
+    });
+  } else if (l.href) {
+    a = el("a", cls, label + " ↗");
+    a.href = l.href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.title = (l.notes ? l.notes + "\n" : "") + l.href;
+    a.addEventListener("click", function (e) { e.stopPropagation(); });
+  } else {
+    a = el("span", cls + " nourl", label);
+    a.title = "No URL for this " + (l.system || "link")
+      + " — paste the full URL with + Add link (or set its site in config.json)";
+  }
+  return a;
+}
+
+// The primary link on a list row: one click, plus "+N" when there are others.
+function plinkChip(pl) {
+  var wrap = el("span", "plink");
+  var a = linkAnchor(pl, "chip");
+  wrap.appendChild(a);
+  if (pl.n > 1) {
+    var more = el("span", "more", "+" + (pl.n - 1));
+    more.title = (pl.n - 1) + " more link" + (pl.n === 2 ? "" : "s") + " — open the item to see them";
+    wrap.appendChild(more);
+  }
   return wrap;
 }
 

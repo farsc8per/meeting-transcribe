@@ -405,14 +405,18 @@ after the "hit by a bus … best-case scenario" line, and missed the far-end off
 at the same moment — Zoom's noise suppression. So candidates come with their lead-in, and
 **👑 Crown** (on a candidate or any transcript line) always wins.
 
-**Naming people live.** In the Room panel the far end splits live into **Speaker 1, 2, …**
-by voice (stable numbers; quiet voices fold under "Earlier voices"), each with the closest
-voiceprint as a "maybe X?" hint. ✓ It's X, ✎ Name anyone, or ✎ correct a wrong match. The voice is learned for the rest of the call (later
-chunks that sound like it get the name, in the Room and the live transcript), and after
-the full pass the review page opens with those people filled in — marked confirmed only
-when the cluster is clearly them and the name is a verified contact. Built after a call
-where one speaker with no voiceprint kept matching a colleague's print at 0.62.
-Nothing is enrolled; enrol from Review as usual. Stored in `live_names.json`.
+**Naming people live.** **Open Room ↗** is on every recording (with Vocal cues off it shows
+names only). The far end splits live into **Speaker 1, 2, …** by voice (stable numbers;
+every card stays where it first appeared and shows the latest thing that voice said), each
+with the closest voiceprint as a "maybe X?" hint; a voice that matches a saved voiceprint
+names itself once it has said ~8 s. It's X, ✎ Name anyone, or ✎ correct a wrong match. The
+voice is learned for the rest of the call (later chunks that sound like it get the name, in
+the Room and the live transcript). **✓ Confirm** the ones you're sure of: after the full
+pass the review page opens with those voices already confirmed ("confirmed live by you") —
+when the name is a verified contact and the voice clearly matches what you confirmed. Names
+you only picked are filled in for you to confirm. Built after a call where one speaker with
+no voiceprint kept matching a colleague's print at 0.62. Nothing is enrolled; enrol from
+Review as usual. Stored in `live_names.json`.
 
 **Vocal cues, opt-in per meeting.** How each *confirmed* speaker's delivery moves against
 *their own* normal: **Energy** (pitch, range, pace, loudness) and **Friction** (gaps,

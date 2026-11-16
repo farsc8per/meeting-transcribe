@@ -934,6 +934,8 @@ def render_markdown(session: Path, meta: dict, timeline: list[dict], names: dict
             bits.append("**unconfirmed**")
         elif info.get("confirmed_by") == "ready-to-review":
             bits.append("auto-confirmed at hand-off")
+        elif info.get("confirmed_by") == "live":
+            bits.append("confirmed live in the Room")
         roster.append(f"| {label} | `{k}` | {', '.join(bits) or '—'} |")
     if roster:
         L += ["## Speakers", "", "| Name | Key | Basis |", "|---|---|---|"] + roster + [""]
@@ -1479,9 +1481,17 @@ def _live(a, rec_mark=None):
         import livenames as livenames_mod
     except Exception:
         livenames_mod = None
+    # The Room's naming cards run on EVERY live recording (Nov 9): each line's timing, text
+    # and voice fingerprint go to cues_live.jsonl. Only the opt-in measures delivery.
+    try:
+        import cues as cues_mod
+    except Exception as e:
+        cues_mod = None
+        if want_cues:
+            warn(f"vocal cues unavailable this call: {e}")
+            want_cues = False
     if want_cues:
         try:
-            import cues as cues_mod
             cues_mod.request(d)
         except Exception as e:
             warn(f"vocal cues unavailable this call: {e}")
@@ -1630,16 +1640,20 @@ def _live(a, rec_mark=None):
                             except Exception:
                                 pass
                 flush_line(kind, at, text, who)
-                # Vocal cues, only when opted in. Wrapped: a measurement can never cost
-                # the live transcript a line, and it runs after the line is printed.
-                if want_cues:
+                # The Room's rows: always (who said what, voice fingerprints for naming);
+                # delivery measurements and laughter only when opted in. Wrapped: the Room
+                # can never cost the live transcript a line, and it runs after the line is
+                # printed.
+                if cues_mod is not None:
                     try:
                         cues_mod.append_live(d, kind, at, segs, tmp, cue_who,
-                                             hint=cue_hint, match=cue_match, people=people)
-                        laughs.offer(kind, at, tmp)     # laughter → Best Saying, sampled
+                                             hint=cue_hint, match=cue_match, people=people,
+                                             features=want_cues)
+                        if want_cues:
+                            laughs.offer(kind, at, tmp)     # laughter → Best Saying, sampled
                     except Exception as e:
                         if not cue_warned:
-                            say(f"{DIM}   vocal cues: skipped a chunk ({e}){RST}")
+                            say(f"{DIM}   room: skipped a chunk ({e}){RST}")
                             cue_warned = True
             time.sleep(2.0)
     except KeyboardInterrupt:
@@ -2051,6 +2065,63 @@ def cmd_init(a):
     return 0
 
 
+def cmd_migrate(a):
+    """mt migrate — apply the tracking-feature upgrades this version knows about.
+
+    mt's own database (created by `mt init`) is upgraded after a backup. A database you
+    pointed mt at yourself is only reported on unless you pass --own-db — the same rule as
+    `mt init`: mt never restructures a database it did not create without being asked.
+    `--auto` is what an update runs: it never fails because of your own database."""
+    import dbschema
+    p = dbschema.pending(P.DB)
+    if not p["exists"]:
+        say(f"   no database at {P.DB} — run:  {HERE / 'mt'} init")
+        return 0 if a.auto else 1
+    if not p["pending"]:
+        say(f"   ✓ database is up to date  {DIM}{P.DB}{RST}")
+        return 0
+    say(f"   {len(p['pending'])} upgrade(s) for {P.DB}:")
+    for k, what in p["pending"]:
+        say(f"     · {what}")
+    if a.check:
+        return 0
+    if not p["mine"] and not a.own_db:
+        say(f"   {YEL}!{RST} this database is your own (mt did not create it), so mt leaves it "
+            "alone. Every upgrade only ADDS columns, tables and indexes. To apply them:")
+        say(f"       {HERE / 'mt'} migrate --own-db      (backs up first)")
+        say(f"     or hand your assistant the prompt in docs/DATABASE.md "
+            "(\"When an update adds to the database\").")
+        return 0 if a.auto else 1
+    try:
+        r = dbschema.upgrade(P.DB, own=a.own_db)
+    except Exception as e:
+        say(f"   {RED}✗{RST} upgrade failed: {e}")
+        say("     the backup in backups/ beside the database is the way back")
+        return 1
+    if r["backup"]:
+        say(f"   backup: {r['backup']}")
+    for k, done in r["applied"]:
+        say(f"   ✓ {k}: {', '.join(map(str, done)) if done else 'done'}")
+    return 0
+
+
+def doctor_migrations():
+    """A notice, never a failure: tracking features the database has not been upgraded for."""
+    import dbschema
+    try:
+        p = dbschema.pending(P.DB)
+    except Exception as e:
+        say(f"   ○ could not check feature upgrades ({e})")
+        return
+    if not p["exists"]:
+        return
+    if not p["pending"]:
+        say("   ✓ tracking features up to date")
+        return
+    how = "mt migrate" if p["mine"] else "mt migrate --own-db  (your own database)"
+    say(f"   ○ {len(p['pending'])} tracking upgrade(s) not applied — run:  {how}")
+
+
 def doctor_workspace() -> bool:
     """The `mt doctor` section for where data lives and whether the DB meets the contract."""
     import dbschema
@@ -2064,6 +2135,7 @@ def doctor_workspace() -> bool:
         return False
     if c["ok"]:
         say(f"   ✓ database matches schema v{dbschema.SCHEMA_VERSION}")
+        doctor_migrations()
     else:
         ok = False
         say(f"   {RED}✗{RST} database is missing parts of schema.sql (see docs/DATABASE.md):")
@@ -4175,6 +4247,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="go ahead past a release's Needs: line (after IT has done it)")
     q.set_defaults(f=cmd_update)
     q = sub.add_parser("version", help="print the installed version"); q.set_defaults(f=cmd_version)
+    q = sub.add_parser("migrate", help="bring the database up to date with new tracking "
+                                       "features (backs up first)")
+    q.add_argument("--check", action="store_true", help="only list what is missing")
+    q.add_argument("--own-db", action="store_true",
+                   help="also upgrade a database mt did not create (yours, via \"db\")")
+    q.add_argument("--auto", action="store_true",
+                   help="what an update runs: upgrade mt's own database, only report on yours")
+    q.set_defaults(f=cmd_migrate)
     q = sub.add_parser("init", help="create the workspace folders and a new database "
                                     "(never touches an existing one)")
     q.set_defaults(f=cmd_init)

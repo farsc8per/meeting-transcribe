@@ -56,3 +56,40 @@ Either way, hand your AI assistant the prompt below.
 > people's names in `contacts.name` should be exactly how they appear in meetings — that is
 > how mt connects a voice to a contact. To post weekly updates to Slack, set
 > `customers.slack_internal` to the account's channel as `#channel (<channel id>)`.
+
+## When an update adds to the database
+
+Some releases add tracking features that need new columns or tables (the change log for
+items, titles, owners linked to contacts, links). Every one of these upgrades only **adds**
+— no rename, no drop — and each takes a backup first (`backups/` beside the database).
+
+- **mt's own database** (made by `mt init`) is upgraded for you: by the updater, and again
+  when `mt web` starts if anything is still missing. You do nothing.
+- **Your own database** (`"db"` in `config.json`) is never changed without you asking.
+  `mt doctor` lists what is missing; `mt migrate --check` shows the same. Apply it with
+  `mt migrate --own-db`, or hand your assistant the prompt below.
+
+### Prompt for your assistant (updates)
+
+> I use `mt`, pointed at my own SQLite database. An mt update added tracking features that
+> need new columns/tables. mt is at `<path to mt>`.
+>
+> 1. Run `<path to mt>/mt migrate --check` and show me the list. Change nothing yet.
+> 2. If anything of mine already uses a name it wants to add, stop and tell me.
+> 3. After I say go: `<path to mt>/mt migrate --own-db` (it backs the database up first),
+>    then `<path to mt>/mt doctor`, and show me both outputs.
+> 4. From then on, when you write to this database yourself, follow the conventions below.
+
+### Conventions that came with these upgrades
+
+- **Links** (`external_links`): one row per thing an item points at. `system` is one of
+  `jira, confluence, monday, slack, gmail, gdrive, gcal, file, web`; `role` is one of
+  `tracks` (the ticket/epic/request that *is* this work), `customer_share`, `source`,
+  `discussion`, `deliverable`, `related`, `reference`. Put the full URL in `url` when you
+  have it. Exactly one link per item has `is_primary = 1` — the one the list opens. The
+  easiest way to get all of that right is `tracking.add_link(...)` rather than a raw INSERT.
+- **Dates on an item**: `due_date` is a real deadline; `follow_up_date` is when you next touch
+  it (roll it forward each time). `start_date` / `end_date` are the plan.
+- **History**: every change to an item is logged in `item_events` automatically. When your
+  assistant edits a row, set `updated_by` (its name) and `updated_at` in the same UPDATE so
+  the log says who did it.

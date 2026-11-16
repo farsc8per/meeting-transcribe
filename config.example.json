@@ -31,6 +31,10 @@
   "jira_site": "https://yourcompany.atlassian.net",
   "_jira_note": "Only for posting weekly updates to Jira. Leave out to turn Jira posting off. The API token goes in ~/.config/mt/credentials.json or the keychain service named by jira_keychain (default mt-jira-api).",
 
+  "monday_site": "https://yourcompany.monday.com",
+  "slack_site": "https://yourcompany.slack.com",
+  "_links_note": "Optional. Turn tracker links that hold only an id (a Monday pulse, a Slack thread) into clickable URLs. Jira and Confluence links use jira_site; Gmail and Calendar links open as google_account. A pasted URL always works without these.",
+
   "assistant_name": "assistant",
   "_assistant_note": "What your AI assistant is called where mt records who did something (who posted a weekly update, who proposed a memory change).",
 
@@ -39,6 +43,9 @@
 
   "memory_dir": "",
   "_memory_note": "Off by default. A folder of your AI assistant's memory files for the Hygiene -> Memory page and search. \"claude\" = Claude Code's memory folder for your workspace.",
+
+  "hygiene_backups_keep": 10,
+  "_hygiene_backups_note": "How many whole-DB backups the Hygiene page keeps in backups/ beside the database (one is taken before every fix). Older ones are pruned; nothing else in that folder is touched.",
 
   "mic_priority": [],
   "_mic_note": "Ordered mic name fragments; the first one plugged in wins. `mt devices` lists them.",
